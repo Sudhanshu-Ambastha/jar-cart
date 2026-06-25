@@ -31,14 +31,31 @@ func AddDependency(manifestPath, rawCoordinate string, isDirect bool, libDir str
 	}
 	newDep := models.Dependency{Group: group, Library: lib, Version: version}
 
+	jarFileName := fmt.Sprintf("%s-%s.jar", lib, version)
+	targetLocalJarPath := filepath.Join(libDir, jarFileName)
+	
+	_, statErr := os.Stat(targetLocalJarPath)
+	
 	adapter := GetAdapterForFile(manifestPath)
 	if adapter == nil {
 		return fmt.Errorf("no adapter found for %s", manifestPath)
 	}
-
 	manifest, err := adapter.Load(manifestPath)
 	if err != nil {
 		return err
+	}
+
+	inManifest := false
+	for _, d := range manifest.Dependencies {
+		if d.Group == newDep.Group && d.Library == newDep.Library && d.Version == newDep.Version {
+			inManifest = true
+			break
+		}
+	}
+
+	if statErr == nil && inManifest {
+		fmt.Printf("✅ %s:%s is already present in your project.\n", group, lib)
+		return nil
 	}
 
 	var filtered []models.Dependency
@@ -49,12 +66,14 @@ func AddDependency(manifestPath, rawCoordinate string, isDirect bool, libDir str
 	}
 	filtered = append(filtered, newDep)
 	manifest.Dependencies = filtered
-	err = adapter.Save(manifestPath, manifest)
-	if err != nil {
+	
+	if err := adapter.Save(manifestPath, manifest); err != nil {
 		return err
 	}
 
-	fmt.Println("🔒 Resolving dependencies and updating lockfile...")
+	startTime := time.Now()
+	fmt.Println("🔒 Resolving dependencies and synchronizing...")
+	
 	lockEntries, err := ResolveParallelDependencies(".", manifest.Dependencies)
 	if err != nil {
 		return fmt.Errorf("failed to resolve dependencies: %v", err)
@@ -65,12 +84,13 @@ func AddDependency(manifestPath, rawCoordinate string, isDirect bool, libDir str
 		GeneratedAt:  time.Now().Format(time.RFC3339),
 		Dependencies: lockEntries,
 	}
-	
+
 	if err := WriteLockFile(".", &lock); err != nil {
 		return fmt.Errorf("failed to write lockfile: %v", err)
 	}
 
 	syncToProjectFiles(manifest.Dependencies)
+	fmt.Printf("✨ Finished in %s\n", time.Since(startTime))
 
 	return nil
 }
@@ -142,15 +162,15 @@ func ConvertManifest(sourcePath, targetExt string) error {
 	if srcAdapter == nil {
 		return fmt.Errorf("unsupported source format: %s", sourcePath)
 	}
-	
+
 	manifest, err := srcAdapter.Load(sourcePath)
 	if err != nil {
 		return err
 	}
-	
+
 	basePath := strings.TrimSuffix(sourcePath, filepath.Ext(sourcePath))
 	targetPath := basePath + "." + targetExt
-	
+
 	var targetAdapter adapters.ManifestAdapter
 	switch strings.ToLower(targetExt) {
 	case "json":
@@ -160,12 +180,12 @@ func ConvertManifest(sourcePath, targetExt string) error {
 	default:
 		return fmt.Errorf("unsupported target format: %s", targetExt)
 	}
-	
+
 	err = targetAdapter.Save(targetPath, manifest)
 	if err != nil {
 		return err
 	}
-	
+
 	fmt.Printf("🧹 Removing old manifest: %s\n", sourcePath)
 	return os.Remove(sourcePath)
 }

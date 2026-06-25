@@ -21,6 +21,18 @@ type SyncTask struct {
 	Error      error
 }
 
+func isFileValid(path string, expectedHash string) bool {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	if expectedHash == "" {
+		return true
+	}
+	actualHash, err := CalculateSHA256(path)
+	return err == nil && actualHash == expectedHash
+}
+
 func ResolveParallelDependencies(projectDir string, dependencies []models.Dependency) (map[string]LockEntry, error) {
 	if len(dependencies) == 0 {
 		return nil, nil
@@ -73,28 +85,42 @@ func ResolveParallelDependencies(projectDir string, dependencies []models.Depend
 	return lockEntries, nil
 }
 
+func DownloadJars(dependencies []models.Dependency, libDir string) error {
+	if len(dependencies) == 0 {
+		return nil
+	}
+	_, err := ResolveParallelDependencies(".", dependencies)
+	return err
+}
+
 func processDependencyExecution(dep models.Dependency, globalCacheDir, localLibDir string) error {
 	jarName := fmt.Sprintf("%s-%s.jar", dep.Library, dep.Version)
 	coordHash := sha256.Sum256([]byte(fmt.Sprintf("%s:%s:%s", dep.Group, dep.Library, dep.Version)))
-	hashStr := hex.EncodeToString(coordHash[:12])	
+	hashStr := hex.EncodeToString(coordHash[:12])
 	cachePackageDir := filepath.Join(globalCacheDir, hashStr)
 	cachedJarPath := filepath.Join(cachePackageDir, jarName)
 	targetLocalJarPath := filepath.Join(localLibDir, jarName)
 
-	if _, err := os.Stat(cachedJarPath); os.IsNotExist(err) {
+	if isFileValid(targetLocalJarPath, "") {
+		return nil
+	}
+
+	if !isFileValid(cachedJarPath, "") {
+		fmt.Printf("📥 Downloading: %s\n", jarName)
 		_ = os.MkdirAll(cachePackageDir, 0755)
 		groupURLPath := strings.ReplaceAll(dep.Group, ".", "/")
 		url := fmt.Sprintf("https://repo1.maven.org/maven2/%s/%s/%s/%s-%s.jar",
 			groupURLPath, dep.Library, dep.Version, dep.Library, dep.Version)
-		
+
 		if err := streamAndCacheAsset(url, cachedJarPath); err != nil {
 			return err
 		}
 	}
 
+	fmt.Printf("📦 Cached: %s\n", jarName)
+
 	_ = os.Remove(targetLocalJarPath)
 	err := os.Link(cachedJarPath, targetLocalJarPath)
-
 	if err != nil {
 		return fallbackFileCopy(cachedJarPath, targetLocalJarPath)
 	}
@@ -103,25 +129,37 @@ func processDependencyExecution(dep models.Dependency, globalCacheDir, localLibD
 
 func streamAndCacheAsset(url, targetPath string) error {
 	resp, err := http.Get(url)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK { return fmt.Errorf("maven error: %s", resp.Status) }
-	
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("maven error: %s", resp.Status)
+	}
+
 	tmpPath := targetPath + ".tmp"
 	out, err := os.Create(tmpPath)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	_, err = io.Copy(out, resp.Body)
 	out.Close()
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	return os.Rename(tmpPath, targetPath)
 }
 
 func fallbackFileCopy(src, dst string) error {
 	in, err := os.Open(src)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer in.Close()
 	out, err := os.Create(dst)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer out.Close()
 	_, err = io.Copy(out, in)
 	return err
