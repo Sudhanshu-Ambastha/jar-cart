@@ -171,6 +171,13 @@ func main() {
 				_, _ = utils.ResolveParallelDependencies(".", deps)
 			}
 			utils.RunProject(filteredArgs[0])
+		
+		case "watch":
+			if len(filteredArgs) < 1 {
+				utils.WatchAndRun("src")
+			} else {
+				utils.WatchAndRun(filteredArgs[0])
+			}
 
 		case "help", "-h", "--help":
 			printHelp()

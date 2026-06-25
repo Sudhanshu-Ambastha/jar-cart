@@ -22,13 +22,35 @@ func FindJavaFiles(dir string) ([]string, error) {
 	return files, err
 }
 
-func RunProject(target string) {
-	binDir := filepath.Join(".jar-cart", "bin")
-	absLib, _ := filepath.Abs("lib")
-	libPath := filepath.Join(absLib, "*")
-	_ = os.MkdirAll(binDir, 0755)
+func ResolveMainClass(input string) string {
+	// If the user inputs "src" or "src/", they are likely trying to run the project.
+	// We default to "src.App" as the standard entry point.
+	if input == "src" || input == "." {
+		return "src.App"
+	}
+	
+	name := strings.TrimSuffix(input, ".java")
+	name = strings.ReplaceAll(name, string(os.PathSeparator), ".")
+	name = strings.ReplaceAll(name, "/", ".")
+	
+	if !strings.HasPrefix(name, "src.") {
+		name = "src." + name
+	}
+	
+	return name
+}
 
-	classpathSep := string(os.PathListSeparator)
+func RunProject(input string) {
+	mainClass := ResolveMainClass(input)
+	
+	binDir := filepath.Join(".jar-cart", "bin")
+	absLib, err := filepath.Abs("lib")
+	if err != nil {
+		return
+	}
+	
+	_ = os.MkdirAll(binDir, 0755)
+	classpath := binDir + string(os.PathListSeparator) + filepath.Join(absLib, "*")
 
 	javaFiles, err := FindJavaFiles("src")
 	if err != nil || len(javaFiles) == 0 {
@@ -39,37 +61,32 @@ func RunProject(target string) {
 	argfilePath := filepath.Join(".jar-cart", "sources.txt")
 	argfile, _ := os.Create(argfilePath)
 	for _, file := range javaFiles {
-		_, _ = argfile.WriteString(file + "\n")
+		_, _ = argfile.WriteString(filepath.Clean(file) + "\n")
 	}
 	argfile.Close()
 	defer os.Remove(argfilePath)
 
 	fmt.Println("⚡ Compiling source tree architecture...")
-	javacArgs := []string{
-		"-cp", fmt.Sprintf("%s%s%s", libPath, classpathSep, binDir),
-		"-d", binDir,
-		"@" + argfilePath,
-	}
-
-	javacCmd := exec.Command("javac", javacArgs...)
+	
+	javacCmd := exec.Command("javac", "-cp", classpath, "-d", binDir, "@"+argfilePath)
 	javacCmd.Stdout = os.Stdout
 	javacCmd.Stderr = os.Stderr
+	
 	if err := javacCmd.Run(); err != nil {
-		fmt.Println("❌ Compilation lifecycle interrupted.")
+		fmt.Println("❌ Compilation failed.")
 		return
 	}
 
-	mainClass := "src.App"
+	fmt.Printf("🚀 Booting execution engine: %s\n\n", mainClass)
 
-	fmt.Printf("🚀 Booting execution engine target: %s\n\n", mainClass)
-	javaArgs := []string{
-		"-cp", fmt.Sprintf("%s%s%s", binDir, classpathSep, libPath),
-		mainClass,
-	}
-
-	javaCmd := exec.Command("java", javaArgs...)
+	javaCmd := exec.Command("java", "-cp", classpath, mainClass)
 	javaCmd.Stdin = os.Stdin
 	javaCmd.Stdout = os.Stdout
 	javaCmd.Stderr = os.Stderr
-	_ = javaCmd.Run()
+	env := append(os.Environ(), "JAVA_TOOL_OPTIONS=--enable-native-access=ALL-UNNAMED")
+	javaCmd.Env = env
+	
+	if err := javaCmd.Run(); err != nil {
+		fmt.Printf("❌ Execution failed: %v\n", err)
+	}
 }
