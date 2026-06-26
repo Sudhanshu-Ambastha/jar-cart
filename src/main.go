@@ -26,6 +26,9 @@ func printHelp() {
 	fmt.Println("  remove <pkg>     Strips an artifact marker and cleans up the local JAR")
 	fmt.Println("  convert <type>   Translates configuration contexts (json|xml)")
 	fmt.Println("  run <path>       Compiles and runs a target Java source file")
+	fmt.Println("  run-jar <class>  Runs the built JAR with all dependencies/native access")
+	fmt.Println("  watch <path>     Starts a reactive file-watcher for live reloads")
+	fmt.Println("  build            Packages the project into a portable Fat JAR")
 	fmt.Println("  help             Displays this documentation")
 }
 
@@ -177,6 +180,24 @@ func main() {
 				utils.WatchAndRun("src")
 			} else {
 				utils.WatchAndRun(filteredArgs[0])
+			}
+		
+		case "build":
+			if err := utils.RunBuild(); err != nil {
+				fmt.Printf("❌ Build failed: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println("✨ Build successful!")
+		
+		case "run-jar":
+			mainClass := ""
+			if len(filteredArgs) > 0 {
+				mainClass = filteredArgs[0]
+			}
+			
+			if err := utils.RunJar("dist/app.jar", mainClass); err != nil {
+				fmt.Printf("❌ Execution failed: %v\n", err)
+				os.Exit(1)
 			}
 
 		case "help", "-h", "--help":

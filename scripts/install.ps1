@@ -1,37 +1,31 @@
-param(
-    [string]$Version = ""
-)
+param([string]$Version = "")
 $ErrorActionPreference = "Stop"
 
 if ([string]::IsNullOrEmpty($Version)) {
-    Write-Host "🔍 Fetching latest version tag from GitHub API..."
     try {
-        $releaseInfo = Invoke-RestMethod -Uri "https://api.github.com/repos/Sudhanshu-Ambastha/jar-cart/releases/latest" -UseBasicParsing
-        $Version = $releaseInfo.tag_name
-    } catch {
-        Write-Host "⚠️ API check failed. Falling back to default v0.0.1"
-        $Version = "v0.0.1"
-    }
+        $info = Invoke-RestMethod -Uri "https://api.github.com/repos/Sudhanshu-Ambastha/jar-cart/releases/latest"
+        $Version = $info.tag_name
+    } catch { $Version = "v0.0.1" }
 }
 
-$installDir = Join-Path $HOME ".jar-cart\bin"
-if (-not (Test-Path $installDir)) { New-Item -ItemType Directory -Path $installDir | Out-Null }
+$arch = "x86_64" # Assume x64 for Windows
+$url = "https://github.com/Sudhanshu-Ambastha/jar-cart/releases/download/$Version/jar-cart-$arch-windows.zip"
+$zipPath = Join-Path ([System.IO.Path]::GetTempPath()) "jar-cart.zip"
 
-$url = "https://github.com/Sudhanshu-Ambastha/jar-cart/releases/download/$Version/jar-cart-x86_64-windows.zip"
-$zipPath = Join-Path [System.IO.Path]::GetTempPath() "jar-cart.zip"
-
-Write-Host "⚡ Downloading jar-cart $Version for Windows..."
+Write-Host "⚡ Downloading $Version..." -ForegroundColor Cyan
 Invoke-WebRequest -Uri $url -OutFile $zipPath
 
-Write-Host "📦 Unpacking core workspace tools..."
+$installDir = Join-Path $HOME ".jar-cart\bin"
+if (-not (Test-Path $installDir)) { New-Item -ItemType Directory -Path $installDir -Force }
+
+Write-Host "📦 Unpacking..."
 Expand-Archive -Path $zipPath -DestinationPath $installDir -Force
 Remove-Item $zipPath
 
-$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if ($userPath -notlike "*$installDir*") {
-    [Environment]::SetEnvironmentVariable("Path", "$userPath;$installDir", "User")
-    $env:Path = "$env:Path;$installDir"
-    Write-Host "🚀 Automatically added $installDir to your User PATH variable."
+$oldPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($oldPath -notlike "*$installDir*") {
+    [Environment]::SetEnvironmentVariable("Path", "$oldPath;$installDir", "User")
+    Write-Host "🚀 Added to PATH." -ForegroundColor Green
 }
 
-Write-Host "✨ Successfully installed jar-cart! Restart your shell session and type: jar-cart --help"
+Write-Host "✨ Done! Restart terminal to finish." -ForegroundColor Green

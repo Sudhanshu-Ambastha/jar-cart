@@ -8,47 +8,29 @@ A fast, cross-platform CLI tool written in Go to fetch, cache, and execute Java 
 
 **jar-cart** is a modern, zero-configuration package manager and runner for the Java ecosystem.
 
-By leveraging native filesystem **Hard Links** and a **Content Addressable Storage (CAS)** cache, `jar-cart` eliminates the friction of traditional build systems while providing near-instant dependency reuse and minimal disk overhead.
+By leveraging native filesystem **Hard Links**, a **Content Addressable Storage (CAS)** cache, and **Isolated Runtime Provisioning**, `jar-cart` eliminates the friction of traditional build systems while providing near-instant dependency reuse and project-specific Java runtimes.
 
 ---
 
 ## 🚀 Key Features
 
-### ⚡ Performance
+### ⚡ Performance & Efficiency
 
-- Native Hard Link (CAS) architecture
-- Instant dependency linking across projects
-- No duplicated disk usage
+- **CAS Architecture:** Artifacts are downloaded once and stored globally.
+- **Hard-Linking:** Instant dependency linking; no duplicated disk usage across projects.
 
-### 🔒 Security
+### ☕ Isolated Runtimes (New!)
 
-- SHA256 integrity verification
-- Atomic download protection
-- Corruption-resistant synchronization
+- **Automated JDK Provisioning:** Forget `JAVA_HOME` configuration. `jar-cart` automatically downloads and isolates specific JDK versions (17, 21, 25, etc.) for each project.
+
+### 🔒 Security & Reliability
+
+- **SHA256 Verification:** Integrity checks for every artifact.
+- **Atomic Operations:** Prevents corruption from interrupted downloads.
 
 ### 🧩 Zero Configuration
 
-Works out of the box with support for:
-
-- `jar-cart.json`
-- `jar-cart.xml`
-
-No complex setup required.
-
-### 🏢 Enterprise Ready
-
-- Custom repository mirrors
-- Corporate proxy support
-- Strict dependency isolation
-
-### 👨‍💻 Developer Friendly
-
-Simple and intuitive commands:
-
-- `run`
-- `add`
-- `sync`
-- `convert`
+Works out of the box with `jar-cart.json` or `jar-cart.xml`.
 
 ---
 
@@ -56,7 +38,19 @@ Simple and intuitive commands:
 
 ### Installation
 
-_(Assuming the `jar-cart` binary is already available in your PATH.)_
+Use the official install scripts to get started instantly:
+
+**Windows (PowerShell):**
+
+```powershell
+iwr https://raw.githubusercontent.com/Sudhanshu-Ambastha/jar-cart/main/scripts/install.ps1 -UseBasicParsing | iex
+```
+
+**Linux / macOS:**
+
+```bash
+curl -sSL https://raw.githubusercontent.com/Sudhanshu-Ambastha/jar-cart/main/scripts/install.sh | bash
+```
 
 ### Initialize a Project
 
@@ -65,84 +59,53 @@ jar-cart init my-app
 cd my-app
 ```
 
-### Add Dependencies
-
-```bash
-jar-cart add org.slf4j:slf4j-api:2.0.7
-```
-
 ### Sync & Execute
 
-Download dependencies and hard-link them into the project's `lib/` directory:
+Download dependencies and provision the required Java runtime automatically:
 
 ```bash
 jar-cart sync
-```
-
-Compile and run your application:
-
-```bash
-jar-cart run src/App.java
+jar-cart run-jar
 ```
 
 ---
 
 ## 📋 Commands
 
-| Command          | Description                                                                                                |
-| ---------------- | ---------------------------------------------------------------------------------------------------------- |
-| `init`           | Creates an interactive or default project layout.                                                          |
-| `add <pkg>`      | Adds an artifact to the manifest, resolves the dependency tree, and automatically updates the lockfile.    |
-| `sync`           | Downloads dependencies, validates integrity, and creates hard links.                                       |
-| `run <file>`     | Compiles source files and launches the JVM.                                                                |
-| `remove <pkg>`   | Removes a dependency and cleans associated links.                                                          |
-| `convert <type>` | Converts and replaces the existing manifest (e.g., `json` to `xml`), maintaining a single source of truth. |
-| `cache-clear`    | Clears cached artifacts and metadata.                                                                      |
+| Command          | Description                                                            |
+| ---------------- | ---------------------------------------------------------------------- |
+| `init`           | Creates an interactive or default project layout.                      |
+| `add <pkg>`      | Adds an artifact to the manifest and resolves dependencies.            |
+| `sync`           | Downloads dependencies and synchronizes the project runtime.           |
+| `run <file>`     | Compiles source files and launches the JVM.                            |
+| `run-jar`        | Runs the built JAR using the project's isolated JDK and native access. |
+| `remove <pkg>`   | Removes a dependency and cleans associated links.                      |
+| `convert <type>` | Converts manifest formats (e.g., `json` to `xml`).                     |
+| `cache-clear`    | Clears cached artifacts and metadata.                                  |
+| `watch <path>`   | Starts a reactive file-watcher for live reloads.                       |
+| `build`          | Packages the project into a standalone, portable Fat JAR.              |
 
 ---
 
 ## 🏗 Architecture
 
+### Isolated Java Runtimes
+
+`jar-cart` manages Java runtimes inside `~/.jar-cart/jdks/`. When you run a project, the tool ensures the requested version is provisioned, keeping your system clean and your projects reproducible.
+
 ### Content Addressable Storage (CAS)
 
-Every artifact is downloaded exactly once and stored in:
+Every artifact is stored in:
 
 ```text
 ~/.jar-cart/cache
 ```
 
-This enables efficient reuse across multiple projects.
+This enables efficient reuse across multiple projects, drastically reducing storage footprint.
 
 ### Hard-Linking
 
-Instead of duplicating files, `jar-cart` creates hard links from the global cache into the project's `lib/` directory, providing near O(1) dependency resolution regardless of project size.
-
-### Manifest Strategy
-
-- Clean dependency definitions
-- Automatic deduplication
-- Support for multiple manifest formats
-
----
-
-## 🛡 Built for Reliability
-
-### Atomic Operations
-
-Downloads use temporary staging to prevent corruption caused by interrupted transfers.
-
-### Integrity Checks
-
-Every `sync` operation performs SHA256 verification to guard against dependency drift and corrupted artifacts.
-
-### Cross-Platform
-
-Native support for:
-
-- Windows (hard-link optimized)
-- Linux
-- macOS
-- Other POSIX-compliant systems
+Instead of duplicating files, `jar-cart` creates hard links from the global cache into the project's `lib/` directory, providing near O(1) dependency resolution.
 
 ---
 
@@ -150,14 +113,12 @@ Native support for:
 
 `jar-cart` is designed for developers who value:
 
-- Speed
-- Simplicity
-- Reproducibility
-- Minimal disk usage
-- Zero unnecessary complexity
+- **Speed:** Instant builds and execution.
+- **Reproducibility:** Projects run the same way on every machine.
+- **Simplicity:** No global environment variables required.
+- **Minimalism:** Low disk usage and zero unnecessary complexity.
 
 ---
 
-_Built with ⚡ in Go._
-
+_Built with ⚡ in Go._  
 _Designed for developers who value performance and simplicity._ 🏎️💨✨
