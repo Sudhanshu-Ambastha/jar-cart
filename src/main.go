@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/Sudhanshu-Ambastha/jar-cart/src/utils"
@@ -48,7 +49,7 @@ func main() {
 
 	var filteredArgs []string
 	var frozen, useXML, forceJSON bool
-	var flagFramework, flagStrategy, flagLang string
+	var flagFramework, flagLang string
 
 	for i := 2; i < len(os.Args); i++ {
 		arg := os.Args[i]
@@ -59,14 +60,10 @@ func main() {
 			manifestFile = os.Args[i+1]; i++
 		case arg == "--framework" && i+1 < len(os.Args):
 			flagFramework = os.Args[i+1]; i++
-		case arg == "--strategy" && i+1 < len(os.Args):
-			flagStrategy = os.Args[i+1]; i++
 		case arg == "--lang" && i+1 < len(os.Args):
 			flagLang = os.Args[i+1]; i++
 		case arg == "--xml":
 			useXML = true
-		case arg == "--no-build":
-			flagStrategy = "no-build"
 		case arg == "--json":
 			forceJSON = true
 		default:
@@ -82,18 +79,33 @@ func main() {
 
 	switch command {
 		case "init":
-			projectName := "my-app"
+			projectName := "."
 			if len(filteredArgs) > 0 {
 				projectName = filteredArgs[0]
 			}
-			if err := os.MkdirAll(projectName, 0755); err != nil {
-				fmt.Printf("❌ Failed to create project directory: %v\n", err)
+
+			targetDir, err := utils.HandleInit(projectName)
+			if err != nil {
+				fmt.Printf("❌ Failed to initialize project: %v\n", err)
 				os.Exit(1)
 			}
-			if flagFramework != "" && flagStrategy != "" {
-				utils.ExecuteScaffold(projectName, projectName, flagFramework, flagStrategy, flagLang, "25")
+
+			s := "no-build"
+			f := flagFramework
+			if f == "" {
+				f = "Vanilla Java Application" 
+			}
+			l := flagLang
+			if l == "" {
+				l = "Java" 
+			}
+
+			fmt.Printf("\n⚡ Structuring scaffolding for \033[34m%s\033[0m (no-build mode)...\n", targetDir)
+			if err := utils.ExecuteScaffold(targetDir, filepath.Base(targetDir), f, s, l, "25"); err != nil {
+				fmt.Printf("❌ Scaffold failed: %v\n", err)
 			} else {
-				utils.InteractiveInit(projectName, flagFramework, flagStrategy, flagLang)
+				fmt.Println("\n\033[32m✨ Project ready! Happy coding! 🛒🏎️💨\033[0m")
+				utils.LaunchWorkspace(targetDir)
 			}
 
 		case "cache-clear":

@@ -43,6 +43,50 @@ func CleanCache() error {
 	return os.RemoveAll(filepath.Join(home, ".jar-cart", "cache"))
 }
 
+func HandleInit(projectName string) (string, error) {
+	var targetDir string
+
+	if projectName == "." {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "", err
+		}
+		targetDir = cwd
+	} else {
+		targetDir = projectName
+		if err := os.MkdirAll(targetDir, 0755); err != nil {
+			return "", fmt.Errorf("failed to create directory: %w", err)
+		}
+	}
+
+	os.MkdirAll(filepath.Join(targetDir, "bin"), 0755)
+	os.MkdirAll(filepath.Join(targetDir, "lib"), 0755)
+	os.MkdirAll(filepath.Join(targetDir, "src"), 0755)
+
+	// Standardized App.java
+	appCode := `package src;
+
+public class App {
+    public static void main(String[] args) {
+        System.out.println("Hello, jar-cart! Your project is ready. 🚀");
+    }
+}`
+	err := os.WriteFile(filepath.Join(targetDir, "src", "App.java"), []byte(appCode), 0644)
+	if err != nil {
+		return "", err
+	}
+
+	config := map[string]interface{}{
+		"project":      filepath.Base(targetDir),
+		"strategy":     "Include All Dependencies",
+		"dependencies": []interface{}{},
+	}
+	configData, _ := json.MarshalIndent(config, "", "    ")
+	err = os.WriteFile(filepath.Join(targetDir, "jar-cart.json"), configData, 0644)
+	
+	return targetDir, err
+}
+
 func ExecuteScaffold(projectDir, projectName, framework, strategy, lang, javaVersion string) error {
 	if javaVersion == "" {
 		javaVersion = "25"
@@ -57,16 +101,18 @@ func ExecuteScaffold(projectDir, projectName, framework, strategy, lang, javaVer
 		_ = os.WriteFile(manifestPath, data, 0644)
 	}
 
-	if strategy == "no-build" {
-		os.MkdirAll(srcPath, 0755)
-		code := `package src;
+	os.MkdirAll(srcPath, 0755)
+	code := `package src;
 
 public class App { 
     public static void main(String[] args) { 
         System.out.println("Hello from jar-cart!"); 
     } 
 }`
-		return os.WriteFile(filepath.Join(srcPath, "App.java"), []byte(code), 0644)
+	_ = os.WriteFile(filepath.Join(srcPath, "App.java"), []byte(code), 0644)
+
+	if strategy == "no-build" {
+		return nil
 	}
 
 	urlProjectName := strings.ToLower(strings.ReplaceAll(projectName, " ", "-"))
@@ -81,7 +127,7 @@ public class App {
 			return unzipStrippingRoot(finalZip, projectDir)
 		}
 	}
-	return generateFallbackTemplate(projectDir, projectName, strategy)
+	return nil
 }
 
 func resolveBlueprintURL(framework, strategy string, data ProjectData) (string, error) {
