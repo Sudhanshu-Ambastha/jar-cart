@@ -63,7 +63,6 @@ func HandleInit(projectName string) (string, error) {
 	os.MkdirAll(filepath.Join(targetDir, "lib"), 0755)
 	os.MkdirAll(filepath.Join(targetDir, "src"), 0755)
 
-	// Standardized App.java
 	appCode := `package src;
 
 public class App {

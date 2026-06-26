@@ -3,6 +3,7 @@ package utils
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -33,21 +34,99 @@ func isFileValid(path string, expectedHash string) bool {
 	return err == nil && actualHash == expectedHash
 }
 
-func ResolveParallelDependencies(projectDir string, dependencies []models.Dependency) (map[string]LockEntry, error) {
-	if len(dependencies) == 0 {
-		return nil, nil
+func CleanupLibDir(projectDir string, expectedEntries map[string]LockEntry) error {
+	libDir := filepath.Join(projectDir, "lib")
+	if _, err := os.Stat(libDir); os.IsNotExist(err) {
+		return nil 
 	}
 
-	homeDir, _ := os.UserHomeDir()
-	globalCacheDir := filepath.Join(homeDir, ".jar-cart", "cache")
-	localLibDir := filepath.Join(projectDir, "lib")
+	files, err := os.ReadDir(libDir)
+	if err != nil {
+		return err
+	}
 
-	_ = os.MkdirAll(globalCacheDir, 0755)
-	_ = os.MkdirAll(localLibDir, 0755)
+	expectedFiles := make(map[string]bool)
+	for _, entry := range expectedEntries {
+		expectedFiles[filepath.Base(entry.Path)] = true
+	}
+
+	fmt.Printf("🧹 Scanning lib/ for cleanup (Total files: %d)\n", len(files))
+
+	for _, file := range files {
+		fileName := file.Name()
+		
+		if file.IsDir() || filepath.Ext(fileName) != ".jar" {
+			continue
+		}
+
+		if !expectedFiles[fileName] {
+			fmt.Printf("🗑️ Removing unused: %s\n", fileName)
+			fullPath := filepath.Join(libDir, fileName)
+			if err := os.Remove(fullPath); err != nil {
+				fmt.Printf("❌ Failed to remove %s: %v\n", fileName, err)
+			}
+		} else {
+			fmt.Printf("✅ Keeping: %s\n", fileName)
+		}
+	}
+	return nil
+}
+
+func GetTransitiveDependencies(dep models.Dependency) ([]models.Dependency, error) {
+	groupPath := strings.ReplaceAll(dep.Group, ".", "/")
+	url := fmt.Sprintf("https://repo1.maven.org/maven2/%s/%s/%s/%s-%s.pom",
+		groupPath, dep.Library, dep.Version, dep.Library, dep.Version)
+
+	resp, err := http.Get(url)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("could not fetch POM for %s:%s", dep.Group, dep.Library)
+	}
+	defer resp.Body.Close()
+
+	var pom models.Pom
+	if err := xml.NewDecoder(resp.Body).Decode(&pom); err != nil {
+		return nil, err
+	}
+
+	var transitives []models.Dependency
+	for _, d := range pom.Dependencies {
+		if d.Scope == "test" || d.Scope == "provided" {
+			continue
+		}
+		if d.Version != "" {
+			transitives = append(transitives, models.Dependency{
+				Group: d.GroupID, Library: d.ArtifactID, Version: d.Version,
+			})
+		}
+	}
+	return transitives, nil
+}
+
+func ResolveParallelDependencies(projectDir string, dependencies []models.Dependency) (map[string]LockEntry, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get home directory: %v", err)
+	}
+	globalCacheDir := filepath.Join(homeDir, ".jar-cart", "cache")
+
+	fullDepMap := make(map[string]models.Dependency)
+	queue := dependencies
+
+	for len(queue) > 0 {
+		dep := queue[0]
+		queue = queue[1:]
+		key := fmt.Sprintf("%s:%s", dep.Group, dep.Library)
+		if _, exists := fullDepMap[key]; !exists {
+			fullDepMap[key] = dep
+			if transitives, err := GetTransitiveDependencies(dep); err == nil {
+				queue = append(queue, transitives...)
+			}
+		}
+	}
 
 	numWorkers := runtime.NumCPU()
-	tasksChan := make(chan *SyncTask, len(dependencies))
-	resultsChan := make(chan *SyncTask, len(dependencies))
+	tasksChan := make(chan *SyncTask, len(fullDepMap))
+	resultsChan := make(chan *SyncTask, len(fullDepMap))
 	var wg sync.WaitGroup
 
 	for i := 0; i < numWorkers; i++ {
@@ -55,13 +134,13 @@ func ResolveParallelDependencies(projectDir string, dependencies []models.Depend
 		go func() {
 			defer wg.Done()
 			for task := range tasksChan {
-				task.Error = processDependencyExecution(task.Dep, globalCacheDir, localLibDir)
+				task.Error = processDependencyExecution(task.Dep, globalCacheDir, filepath.Join(task.ProjectDir, "lib"))
 				resultsChan <- task
 			}
 		}()
 	}
 
-	for _, dep := range dependencies {
+	for _, dep := range fullDepMap {
 		tasksChan <- &SyncTask{Dep: dep, ProjectDir: projectDir}
 	}
 	close(tasksChan)
@@ -71,26 +150,19 @@ func ResolveParallelDependencies(projectDir string, dependencies []models.Depend
 	lockEntries := make(map[string]LockEntry)
 	for res := range resultsChan {
 		if res.Error != nil {
-			return nil, fmt.Errorf("pipeline fault: %v", res.Error)
+			return nil, res.Error
 		}
-		jarPath := filepath.Join(localLibDir, fmt.Sprintf("%s-%s.jar", res.Dep.Library, res.Dep.Version))
+		jarName := fmt.Sprintf("%s-%s.jar", res.Dep.Library, res.Dep.Version)
+		jarPath := filepath.Join(projectDir, "lib", jarName)
 		hash, _ := CalculateSHA256(jarPath)
 		info, _ := os.Stat(jarPath)
 		lockEntries[res.Dep.Group+":"+res.Dep.Library] = LockEntry{
-			Path:   filepath.Join("lib", filepath.Base(jarPath)),
+			Path:   filepath.Join("lib", jarName),
 			Size:   info.Size(),
 			SHA256: hash,
 		}
 	}
 	return lockEntries, nil
-}
-
-func DownloadJars(dependencies []models.Dependency, libDir string) error {
-	if len(dependencies) == 0 {
-		return nil
-	}
-	_, err := ResolveParallelDependencies(".", dependencies)
-	return err
 }
 
 func processDependencyExecution(dep models.Dependency, globalCacheDir, localLibDir string) error {

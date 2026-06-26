@@ -136,6 +136,11 @@ func main() {
 				fmt.Printf("❌ Workspace synchronization loop failed: %v\n", err)
 				os.Exit(1)
 			}
+			err = utils.CleanupLibDir(".", lockEntries)
+			if err != nil {
+				fmt.Printf("❌ Cleanup failed: %v\n", err)
+				os.Exit(1)
+			}
 			lock := utils.LockFile{
 				Version: 1, GeneratedAt: time.Now().Format(time.RFC3339), Dependencies: lockEntries,
 			}

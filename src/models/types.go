@@ -17,3 +17,13 @@ type Manifest struct {
 	JavaVersion  string       `json:"java_version" xml:"java_version"`
 	Dependencies []Dependency `json:"dependencies" xml:"dependencies>dependency"`
 }
+
+type Pom struct {
+	XMLName      xml.Name `xml:"project"`
+	Dependencies []struct {
+		GroupID    string `xml:"groupId"`
+		ArtifactID string `xml:"artifactId"`
+		Version    string `xml:"version"`
+		Scope      string `xml:"scope"`
+	} `xml:"dependencies>dependency"`
+}
