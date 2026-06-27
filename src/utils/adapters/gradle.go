@@ -13,7 +13,11 @@ type GradleAdapter struct {
 }
 
 func (a *GradleAdapter) Load(path string) (*models.Manifest, error) {
-	return &models.Manifest{Project: "gradle-project", Strategy: "gradle"}, nil
+	return &models.Manifest{
+		Project:  "gradle-project", 
+		Strategy: "gradle", 
+		Scripts:  make(map[string]string),
+	}, nil
 }
 
 func (a *GradleAdapter) Save(path string, m *models.Manifest) error {
@@ -21,7 +25,9 @@ func (a *GradleAdapter) Save(path string, m *models.Manifest) error {
 }
 
 func (a *GradleAdapter) AddDependency(path string, dep models.Dependency) error {
-	content, _ := os.ReadFile(path)
+	content, err := os.ReadFile(path)
+	if err != nil { return err }
+	
 	depLine := fmt.Sprintf("    implementation '%s:%s:%s'\n", dep.Group, dep.Library, dep.Version)
 	
 	newContent := strings.Replace(string(content), "dependencies {", "dependencies {\n"+depLine, 1)

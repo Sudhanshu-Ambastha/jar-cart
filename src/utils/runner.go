@@ -5,7 +5,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+
+	"github.com/Sudhanshu-Ambastha/jar-cart/src/models"
 )
 
 func FindJavaFiles(dir string) ([]string, error) {
@@ -23,8 +26,6 @@ func FindJavaFiles(dir string) ([]string, error) {
 }
 
 func ResolveMainClass(input string) string {
-	// If the user inputs "src" or "src/", they are likely trying to run the project.
-	// We default to "src.App" as the standard entry point.
 	if input == "src" || input == "." {
 		return "src.App"
 	}
@@ -89,4 +90,57 @@ func RunProject(input string) {
 	if err := javaCmd.Run(); err != nil {
 		fmt.Printf("❌ Execution failed: %v\n", err)
 	}
+}
+
+func RunScript(scriptName string, manifest *models.Manifest) error {
+	if pre, ok := manifest.Scripts["pre"+scriptName]; ok {
+		fmt.Printf("🔍 Running pre-%s...\n", scriptName)
+		if err := executeShellCommand(pre, scriptName); err != nil {
+			return err
+		}
+	}
+
+	if main, ok := manifest.Scripts[scriptName]; ok {
+		fmt.Printf("⚡ Running %s...\n", scriptName)
+		if err := executeShellCommand(main, scriptName); err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("script '%s' not found in manifest", scriptName)
+	}
+
+	if post, ok := manifest.Scripts["post"+scriptName]; ok {
+		fmt.Printf("🔍 Running post-%s...\n", scriptName)
+		return executeShellCommand(post, scriptName)
+	}
+	return nil
+}
+
+func executeShellCommand(cmdStr string, eventName string) error {
+	var cmd *exec.Cmd
+	
+	exePath, err := os.Executable()
+	if err != nil {
+		exePath = "jar-cart"
+	}
+
+	if runtime.GOOS == "windows" {
+		cmdStr = strings.ReplaceAll(cmdStr, "{JAR_CART}", "\""+exePath+"\"")
+		powershellCmd := "& " + cmdStr
+		cmd = exec.Command("powershell", "-NoProfile", "-Command", powershellCmd)
+	} else {
+		cmdStr = strings.ReplaceAll(cmdStr, "{JAR_CART}", exePath)
+		cmd = exec.Command("sh", "-c", cmdStr)
+	}
+	
+	cwd, _ := os.Getwd()
+	cmd.Env = append(os.Environ(), 
+		"INIT_CWD="+cwd,
+		"JAR_CART_LIFECYCLE_EVENT="+eventName,
+	)
+	
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	
+	return cmd.Run()
 }

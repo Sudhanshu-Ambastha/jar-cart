@@ -10,12 +10,19 @@ type Dependency struct {
 	Version string `json:"version" xml:"version"`
 }
 
+type Script struct {
+	Name    string `xml:"name,attr"`
+	Command string `xml:",chardata"`
+}
+
 type Manifest struct {
-	XMLName      xml.Name     `json:"-" xml:"Manifest"`
-	Project      string       `json:"project" xml:"project"`
-	Strategy     string       `json:"strategy" xml:"strategy"`
-	JavaVersion  string       `json:"java_version" xml:"java_version"`
-	Dependencies []Dependency `json:"dependencies" xml:"dependencies>dependency"`
+	XMLName      xml.Name          `json:"-" xml:"Manifest"`
+	Project      string            `json:"project" xml:"project"`
+	Strategy     string            `json:"strategy" xml:"strategy"`
+	JavaVersion  string            `json:"java_version" xml:"java_version"`
+	Dependencies []Dependency      `json:"dependencies" xml:"dependencies>dependency"`
+	Scripts      map[string]string `json:"scripts,omitempty" xml:"-"` 
+	XMLScripts   []Script          `json:"-" xml:"scripts>script"`
 }
 
 type Pom struct {

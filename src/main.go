@@ -183,14 +183,26 @@ func main() {
 
 		case "run":
 			if len(filteredArgs) < 1 {
-				fmt.Println("❌ Error: 'run' requires a target file.")
-				os.Exit(1)
+				fmt.Println("❌ Error: 'run' requires a target (file or script).")
+				return
 			}
-			if _, err := os.Stat(manifestFile); err == nil {
-				deps, _ := utils.ParseManifest(manifestFile)
-				_, _ = utils.ResolveParallelDependencies(".", deps)
+
+			target := filteredArgs[0]
+			manifest, err := utils.LoadManifest(manifestFile)
+			
+			if err == nil && manifest.Scripts != nil {
+				if _, ok := manifest.Scripts[target]; ok {
+					fmt.Printf("🔍 Detected script: %s\n", target)
+					err := utils.RunScript(target, manifest)
+					if err != nil { 
+						fmt.Printf("❌ Script failed: %v\n", err) 
+					}
+					return 
+				}
 			}
-			utils.RunProject(filteredArgs[0])
+			
+			fmt.Printf("🔍 Detected Java file: %s\n", target)
+			utils.RunProject(target)
 		
 		case "watch":
 			if len(filteredArgs) < 1 {

@@ -14,8 +14,6 @@ import (
 	"strings"
 	"text/template"
 	"time"
-
-	"github.com/Sudhanshu-Ambastha/jar-cart/src/models"
 )
 
 var Verbose bool
@@ -23,6 +21,13 @@ var Verbose bool
 type ProjectData struct {
 	Name  string
 	Group string
+}
+
+type Config struct {
+	Project      string            `json:"project"`
+	Strategy     string            `json:"strategy"`
+	Scripts      map[string]string `json:"scripts"`
+	Dependencies []interface{}     `json:"dependencies"`
 }
 
 func logDebug(format string, a ...interface{}) {
@@ -47,16 +52,10 @@ func HandleInit(projectName string) (string, error) {
 	var targetDir string
 
 	if projectName == "." {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return "", err
-		}
-		targetDir = cwd
+		targetDir, _ = os.Getwd()
 	} else {
 		targetDir = projectName
-		if err := os.MkdirAll(targetDir, 0755); err != nil {
-			return "", fmt.Errorf("failed to create directory: %w", err)
-		}
+		os.MkdirAll(targetDir, 0755)
 	}
 
 	os.MkdirAll(filepath.Join(targetDir, "bin"), 0755)
@@ -70,18 +69,22 @@ public class App {
         System.out.println("Hello, jar-cart! Your project is ready. 🚀");
     }
 }`
-	err := os.WriteFile(filepath.Join(targetDir, "src", "App.java"), []byte(appCode), 0644)
-	if err != nil {
-		return "", err
+	os.WriteFile(filepath.Join(targetDir, "src", "App.java"), []byte(appCode), 0644)
+
+	config := Config{
+		Project:  filepath.Base(targetDir),
+		Strategy: "Include All Dependencies",
+		Scripts: map[string]string{
+			"hello":    "echo 'Hello from jar-cart!'",
+			"pretest":  "echo 'Compiling tests...'",
+			"test":     "echo 'Running tests...'",
+			"posttest": "echo 'Cleaning up test artifacts...'",
+		},
+		Dependencies: []interface{}{},
 	}
 
-	config := map[string]interface{}{
-		"project":      filepath.Base(targetDir),
-		"strategy":     "Include All Dependencies",
-		"dependencies": []interface{}{},
-	}
 	configData, _ := json.MarshalIndent(config, "", "    ")
-	err = os.WriteFile(filepath.Join(targetDir, "jar-cart.json"), configData, 0644)
+	err := os.WriteFile(filepath.Join(targetDir, "jar-cart.json"), configData, 0644)
 	
 	return targetDir, err
 }
@@ -94,8 +97,25 @@ func ExecuteScaffold(projectDir, projectName, framework, strategy, lang, javaVer
 	manifestPath := filepath.Join(projectDir, "jar-cart.json")
 	srcPath := filepath.Join(projectDir, "src")
 
+	type ManifestFile struct {
+		Project      string            `json:"project"`
+		Strategy     string            `json:"strategy"`
+		Scripts      map[string]string `json:"scripts"`
+		Dependencies []interface{}     `json:"dependencies"`
+	}
+
 	if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
-		m := models.Manifest{Project: projectName, Strategy: strategy, JavaVersion: javaVersion}
+		m := ManifestFile{
+			Project:  projectName,
+			Strategy: strategy,
+			Scripts: map[string]string{
+				"hello":    "echo 'Hello from jar-cart!'",
+				"pretest":  "echo 'Compiling tests...'",
+				"test":     "echo 'Running tests...'",
+				"posttest": "echo 'Cleaning up test artifacts...'",
+			},
+			Dependencies: []interface{}{},
+		}
 		data, _ := json.MarshalIndent(m, "", "    ")
 		_ = os.WriteFile(manifestPath, data, 0644)
 	}

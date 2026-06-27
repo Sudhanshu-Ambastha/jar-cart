@@ -12,12 +12,16 @@ import (
 	"github.com/manifoldco/promptui"
 )
 
-func ParseManifest(filePath string) ([]models.Dependency, error) {
+func LoadManifest(filePath string) (*models.Manifest, error) {
 	adapter := GetAdapterForFile(filePath)
 	if adapter == nil {
 		return nil, fmt.Errorf("unsupported manifest format: %s", filepath.Ext(filePath))
 	}
-	manifest, err := adapter.Load(filePath)
+	return adapter.Load(filePath)
+}
+
+func ParseManifest(filePath string) ([]models.Dependency, error) {
+	manifest, err := LoadManifest(filePath)
 	if err != nil {
 		return nil, err
 	}
