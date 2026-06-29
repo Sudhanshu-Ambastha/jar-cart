@@ -28,35 +28,133 @@ func ParseManifest(filePath string) ([]models.Dependency, error) {
 	return manifest.Dependencies, nil
 }
 
-func AddDependency(manifestPath, rawCoordinate string, isDirect bool, libDir string) error {
-	group, lib, version, err := resolveCoordinate(rawCoordinate)
-	if err != nil { return err }
-	
-	newDep := models.Dependency{Group: group, Library: lib, Version: version}
-	adapter := GetAdapterForFile(manifestPath)
-	manifest, _ := adapter.Load(manifestPath)
-
-	found := false
-	for i, d := range manifest.Dependencies {
-		if d.Group == group && d.Library == lib {
-			manifest.Dependencies[i].Version = version
-			found = true; break
-		}
+func GenerateLockFile(projectDir string, deps []models.Dependency) error {
+	fmt.Println("🔒 Generating/Updating lockfile...")
+	lockEntries, err := ResolveParallelDependencies(projectDir, deps)
+	if err != nil {
+		return err
 	}
-	if !found { manifest.Dependencies = append(manifest.Dependencies, newDep) }
-	adapter.Save(manifestPath, manifest)
-	fmt.Println("🔒 Resolving full dependency graph (including transitives)...")
-	lockEntries, err := ResolveParallelDependencies(".", manifest.Dependencies)
-	if err != nil { return err }
 
 	lock := LockFile{
-		Version: 1, GeneratedAt: time.Now().Format(time.RFC3339),
+		Version:      1,
+		GeneratedAt:  time.Now().Format(time.RFC3339),
 		Dependencies: lockEntries,
 	}
-	WriteLockFile(".", &lock)
+	return WriteLockFile(projectDir, &lock)
+}
 
-	syncToProjectFiles(manifest.Dependencies)
-	return nil
+func updateOrAddDependency(manifest *models.Manifest, newDep models.Dependency) bool {
+	for i, d := range manifest.Dependencies {
+		if d.Group == newDep.Group && d.Library == newDep.Library {
+			if manifest.Dependencies[i].Version != newDep.Version {
+				fmt.Printf("🔄 Updating version: %s -> %s\n", d.Version, newDep.Version)
+				manifest.Dependencies[i].Version = newDep.Version
+				return true
+			}
+			fmt.Println("ℹ️ Dependency already exists. Checking synchronization...")
+			return false
+		}
+	}
+	manifest.Dependencies = append(manifest.Dependencies, newDep)
+	return true
+}
+
+func refreshLockFile() error {
+	fmt.Println("🔄 Regenerating lockfile...")
+	newLock := &LockFile{
+		Version:      1,
+		GeneratedAt:  time.Now().Format(time.RFC3339),
+		Dependencies: make(map[string]LockEntry),
+	}
+
+	files, err := os.ReadDir("lib")
+	if err != nil {
+		return err
+	}
+
+	for _, f := range files {
+		if !f.IsDir() && strings.HasSuffix(f.Name(), ".jar") {
+			fullPath := filepath.Join("lib", f.Name())
+			hash, _ := CalculateSHA256(fullPath)
+			info, _ := f.Info()
+			newLock.Dependencies[f.Name()] = LockEntry{
+				Path:   fullPath,
+				Size:   info.Size(),
+				SHA256: hash,
+			}
+		}
+	}
+	return WriteLockFile(".", newLock)
+}
+
+func AddDependency(manifestPath, rawCoordinate string, isDirect bool, libDir string) error {
+    group, lib, version, err := resolveCoordinate(rawCoordinate)
+    if err != nil {
+        return err
+    }
+
+    newDep := models.Dependency{Group: group, Library: lib, Version: version}
+    adapter := GetAdapterForFile(manifestPath)
+    manifest, err := adapter.Load(manifestPath)
+    if err != nil {
+        return fmt.Errorf("failed to load manifest: %w", err)
+    }
+
+    modified := updateOrAddDependency(manifest, newDep)
+
+    if modified {
+        if err := adapter.Save(manifestPath, manifest); err != nil {
+            return fmt.Errorf("failed to save manifest: %w", err)
+        }
+        fmt.Println("💾 Manifest updated successfully.")
+    } else {
+        fmt.Println("ℹ️ Manifest already contains this dependency.")
+    }
+
+    fmt.Printf("🔒 Synchronizing: %s:%s\n", group, lib)
+    if _, err := ResolveParallelDependencies(".", []models.Dependency{newDep}); err != nil {
+        return err
+    }
+
+    if err := refreshLockFile(); err != nil {
+        fmt.Printf("⚠️ Warning: Failed to update lockfile: %v\n", err)
+    } else {
+        fmt.Println("✅ Lockfile generated successfully.")
+    }
+
+    return nil
+}
+
+func RemoveDependency(manifestPath, rawCoordinate string, libDir string) error {
+    adapter := GetAdapterForFile(manifestPath)
+    if adapter == nil {
+        return fmt.Errorf("no adapter found for %s", manifestPath)
+    }
+
+    manifest, err := adapter.Load(manifestPath)
+    if err != nil {
+        return err
+    }
+
+    var targetDep *models.Dependency
+    for _, d := range manifest.Dependencies {
+        if d.Library == rawCoordinate || fmt.Sprintf("%s:%s", d.Group, d.Library) == rawCoordinate {
+            targetDep = &d
+            break
+        }
+    }
+
+    if targetDep == nil {
+        return fmt.Errorf("dependency '%s' not found in manifest", rawCoordinate)
+    }
+
+    err = adapter.RemoveDependency(manifestPath, *targetDep, libDir)
+    if err != nil {
+        return err
+    }
+
+    manifest, _ = adapter.Load(manifestPath)
+    return GenerateLockFile(".", manifest.Dependencies)
 }
 
 func RunSync(projectDir string) error {
@@ -71,7 +169,7 @@ func RunSync(projectDir string) error {
 	for _, f := range manifestFiles {
 		fullPath := filepath.Join(absDir, f)
 		if _, err := os.Stat(fullPath); err == nil {
-			manifestPath = f 
+			manifestPath = f
 			break
 		}
 	}
@@ -96,21 +194,9 @@ func RunSync(projectDir string) error {
 		return fmt.Errorf("cleanup error: %v", err)
 	}
 
-	lock := LockFile{
-		Version:      1,
-		GeneratedAt:  time.Now().Format(time.RFC3339),
-		Dependencies: lockEntries,
-	}
-	
-	err = WriteLockFile(absDir, &lock)
-	if err != nil {
-		return fmt.Errorf("lockfile error: %v", err)
-	}
-
 	fmt.Println("✨ Dependencies synced and linked perfectly!")
 	return nil
 }
-
 func syncToProjectFiles(deps []models.Dependency) {
 	targets := map[string]adapters.ManifestAdapter{
 		"build.gradle": &adapters.GradleAdapter{},
@@ -158,19 +244,6 @@ func resolveCoordinate(raw string) (string, string, string, error) {
 		version = GetLatestVersionFromMaven(group, lib)
 	}
 	return group, lib, version, nil
-}
-
-func RemoveDependency(manifestPath, rawCoordinate string, libDir string) error {
-	adapter := GetAdapterForFile(manifestPath)
-	if adapter == nil {
-		return fmt.Errorf("no adapter found for %s", manifestPath)
-	}
-	parts := strings.Split(rawCoordinate, ":")
-	if len(parts) != 3 {
-		return fmt.Errorf("invalid format")
-	}
-	dep := models.Dependency{Group: parts[0], Library: parts[1], Version: parts[2]}
-	return adapter.RemoveDependency(manifestPath, dep, libDir)
 }
 
 func ConvertManifest(sourcePath, targetExt string) error {

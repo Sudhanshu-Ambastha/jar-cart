@@ -17,25 +17,30 @@ func WatchAndRun(input string) {
 	}
 	defer watcher.Close()
 
-	fmt.Println("👀 Watching 'src/' for changes... (Press Ctrl+C to stop)")
+	fmt.Println("👀 Watching for changes in 'src/' and 'jar-cart.json'... (Press Ctrl+C to stop)")
 	RunProject(input)
-
 	filepath.Walk("src", func(path string, info os.FileInfo, err error) error {
 		if info.IsDir() {
 			return watcher.Add(path)
 		}
 		return nil
 	})
+	watcher.Add("jar-cart.json")
 
 	for {
 		select {
 		case event, ok := <-watcher.Events:
 			if !ok { return }
-			if strings.HasSuffix(event.Name, ".java") {
-				if event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create {
+			isJava := strings.HasSuffix(event.Name, ".java")
+			isManifest := strings.Contains(event.Name, "jar-cart.json")
+			
+			if (isJava || isManifest) && (event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create) {
+				if isManifest {
+					fmt.Printf("\n⚙️ Manifest change detected! Syncing and reloading with new configuration...\n")
+				} else {
 					fmt.Printf("\n🔄 Change detected in %s. Recompiling...\n", event.Name)
-					RunProject(input)
 				}
+				RunProject(input)
 			}
 		case err, ok := <-watcher.Errors:
 			if !ok { return }

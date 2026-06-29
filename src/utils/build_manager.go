@@ -46,7 +46,16 @@ func RunBuild() error {
 }
 
 func performManualBuild() error {
-	fmt.Println("⚡ Compiling source tree...")
+	_, javacPath, _, err := GetJDKPaths()
+	if err != nil {
+		return err
+	}
+	jarPath := filepath.Join(filepath.Dir(javacPath), "jar")
+	if runtime.GOOS == "windows" {
+		jarPath += ".exe"
+	}
+
+	fmt.Println("⚡ Compiling source tree with managed JDK...")
 	_ = os.MkdirAll("bin", 0755)
 
 	var files []string
@@ -57,13 +66,17 @@ func performManualBuild() error {
 		return nil
 	})
 
-	classpath := "src"
-	libFiles, _ := filepath.Glob("lib/*.jar")
-	for _, lib := range libFiles {
-		classpath += ";" + lib
+	if len(files) == 0 {
+		return fmt.Errorf("no .java files found in src/")
 	}
 
-	err := runCommand("javac", append([]string{"-cp", classpath, "-d", "bin"}, files...)...)
+	classpath := "bin"
+	libFiles, _ := filepath.Glob("lib/*.jar")
+	for _, lib := range libFiles {
+		classpath += string(os.PathListSeparator) + lib
+	}
+
+	err = runCommand(javacPath, append([]string{"-cp", classpath, "-d", "bin"}, files...)...)
 	if err != nil {
 		return err
 	}
@@ -71,14 +84,14 @@ func performManualBuild() error {
 	fmt.Println("📜 Generating manifest...")
 	_ = os.MkdirAll("dist", 0755)
 	manifestPath := "dist/manifest.txt"
-	manifestContent := "Manifest-Version: 1.0\nMain-Class: src.App\n"
+	manifestContent := "Manifest-Version: 1.0\nMain-Class: App\n"
 	err = os.WriteFile(manifestPath, []byte(manifestContent), 0644)
 	if err != nil {
 		return fmt.Errorf("failed to create manifest: %w", err)
 	}
 
-	fmt.Println("📦 Packaging JAR...")
-	return runCommand("jar", "cvfm", "dist/app.jar", manifestPath, "-C", "bin", ".")
+	fmt.Println("📦 Packaging JAR with managed JDK...")
+	return runCommand(jarPath, "cvfm", "dist/app.jar", manifestPath, "-C", "bin", ".")
 }
 
 func runCommand(name string, args ...string) error {
@@ -117,39 +130,32 @@ func getMainClassFromJar(jarPath string) (string, error) {
 }
 
 func RunJar(jarPath string, mainClass string) error {
+	version, _, javaPath, err := GetJDKPaths()
+	if err != nil {
+		return fmt.Errorf("runtime environment error: %w", err)
+	}
+
 	if mainClass == "" {
 		detected, err := getMainClassFromJar(jarPath)
 		if err != nil {
-			fmt.Printf("⚠️  Could not detect main class, falling back to src.App: %v\n", err)
-			mainClass = "src.App"
+			fmt.Printf("⚠️  Could not detect main class, falling back to App: %v\n", err)
+			mainClass = "App"
 		} else {
 			mainClass = detected
 		}
 	}
 
-	targetVersion := "25" 
-	if err := EnsureJavaVersion(targetVersion); err != nil {
-		return fmt.Errorf("runtime provisioning failed: %w", err)
-	}
-
-	homeDir, _ := os.UserHomeDir()
-	javaBin := filepath.Join(homeDir, ".jar-cart", "jdks", targetVersion, "bin", "java")
-	if runtime.GOOS == "windows" {
-		javaBin += ".exe"
-	}
-
 	libFiles, _ := filepath.Glob("lib/*.jar")
 	classpath := jarPath
 	for _, lib := range libFiles {
-		classpath += ";" + lib
+		classpath += string(os.PathListSeparator) + lib
 	}
-
 	args := []string{
 		"--enable-native-access=ALL-UNNAMED",
 		"-cp", classpath,
 		mainClass,
 	}
 
-	fmt.Printf("🚀 Launching with JDK %s [Main: %s]: %s\n", targetVersion, mainClass, args)
-	return runCommand(javaBin, args...)
+	fmt.Printf("🚀 Launching with JDK %s [Main: %s]\n", version, mainClass)
+	return runCommand(javaPath, args...)
 }

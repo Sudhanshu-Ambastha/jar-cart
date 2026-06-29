@@ -1,45 +1,41 @@
-$envPath = ".\.env"
-if (Test-Path $envPath) {
-    Get-Content $envPath | ForEach-Object {
-        $line = $_.Trim()
-        if ($line -and -not $line.StartsWith("#") -and $line.Contains("=")) {
-            $key, $value = $line.Split("=", 2)
-            $value = $value.Trim().Trim("'").Trim('"')
-            [System.Environment]::SetEnvironmentVariable($key.Trim(), $value, "Process")
+$ErrorActionPreference = "Stop"
+
+if (Test-Path ".\.env") {
+    Get-Content ".\.env" | ForEach-Object {
+        if ($_.Trim() -and -not $_.StartsWith("#") -and $_.Contains("=")) {
+            $key, $value = $_.Trim().Split("=", 2)
+            [System.Environment]::SetEnvironmentVariable($key.Trim(), $value.Trim().Trim("'").Trim('"'), "Process")
         }
     }
 }
 
-echo "⚡ Compiling jar-cart.exe..."
-go build -o jar-cart.exe ./src
-if ($LASTEXITCODE -ne 0) { 
-    echo "❌ Go Build Failed"
-    exit 
+Write-Host "⚡ Compiling optimized jar-cart.exe..." -ForegroundColor Cyan
+$env:CGO_ENABLED = "0"
+go build -ldflags="-s -w" -trimpath -o jar-cart.exe ./src
+
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "✅ Compilation Successful" -ForegroundColor Green
+} else {
+    Write-Host "❌ Go Build Failed" -ForegroundColor Red
+    exit 1
 }
 
-$pfxPath = Resolve-Path ".\developer.pfx" -ErrorAction SilentlyContinue
-if (-not $pfxPath) { $pfxPath = ".\developer.pfx" }
-
-$password = $env:JC_CERT_PASSWORD
-if (-not $password) {
-    $password = "JarCart123!"
-}
+$pfxPath = ".\developer.pfx"
+$password = if ($env:JC_CERT_PASSWORD) { $env:JC_CERT_PASSWORD } else { "JarCart123!" }
 
 if (-not (Test-Path $pfxPath)) {
-    echo "🎫 Creating a local developer certificate file (developer.pfx)..."
-    $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
-    $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Sudhanshu Developer" -CertStoreLocation "Cert:\CurrentUser\My" -FriendlyName "JarCartLocalCert" -NotAfter (Get-Date).AddYears(5)
-    Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $securePassword
+    Write-Host "🎫 Generating local signing certificate..." -ForegroundColor Yellow
+    $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Sudhanshu Developer" -CertStoreLocation "Cert:\CurrentUser\My"
+    Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password (ConvertTo-SecureString $password -AsPlainText -Force)
     Remove-Item $cert.PSPath
 }
 
+Write-Host "🔏 Signing jar-cart.exe..." -ForegroundColor Cyan
 $certObject = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfxPath, $password)
-
-echo "🔏 Signing jar-cart.exe using local pfx..."
 $status = Set-AuthenticodeSignature -FilePath "jar-cart.exe" -Certificate $certObject -HashAlgorithm "SHA256"
 
-if ($status.Status -eq "Valid" -or $status.Status -eq "UnknownError") {
-    echo "✨ Successfully compiled and signed jar-cart.exe locally!"
+if ($status.Status -eq "Valid") {
+    Write-Host "✨ Successfully built and signed jar-cart.exe!" -ForegroundColor Green
 } else {
-    echo "⚠️ Signing status: $($status.StatusMessage)"
+    Write-Host "⚠️ Signing status: $($status.StatusMessage)" -ForegroundColor Yellow
 }

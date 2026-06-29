@@ -25,37 +25,64 @@ func FindJavaFiles(dir string) ([]string, error) {
 	return files, err
 }
 
-func ResolveMainClass(input string) string {
-	if input == "src" || input == "." {
-		return "src.App"
-	}
-	
-	name := strings.TrimSuffix(input, ".java")
-	name = strings.ReplaceAll(name, string(os.PathSeparator), ".")
-	name = strings.ReplaceAll(name, "/", ".")
-	
-	if !strings.HasPrefix(name, "src.") {
-		name = "src." + name
-	}
-	
-	return name
+func getInstalledJavaVersion(binPath string) (int, error) {
+	cmd := exec.Command(filepath.Join(binPath, "java"), "-version")
+	output, _ := cmd.CombinedOutput() 
+	outStr := string(output)
+	if strings.Contains(outStr, "version \"17") { return 17, nil }
+	if strings.Contains(outStr, "version \"25") { return 25, nil }
+	return 0, fmt.Errorf("could not detect version")
+}
+
+func ResolveMainClass(filePath string) string {
+    content, err := os.ReadFile(filePath)
+    if err == nil {
+        lines := strings.Split(string(content), "\n")
+        for _, line := range lines {
+            line = strings.TrimSpace(line)
+            if strings.HasPrefix(line, "package ") {
+                pkg := strings.TrimPrefix(line, "package ")
+                pkg = strings.TrimSuffix(pkg, ";")
+                className := strings.TrimSuffix(filepath.Base(filePath), ".java")
+                return pkg + "." + className
+            }
+        }
+    }
+    return strings.TrimSuffix(filepath.Base(filePath), ".java")
 }
 
 func RunProject(input string) {
-	mainClass := ResolveMainClass(input)
-	
-	binDir := filepath.Join(".jar-cart", "bin")
-	absLib, err := filepath.Abs("lib")
+	javaVersion, javacPath, javaPath, err := GetJDKPaths()
 	if err != nil {
+		fmt.Printf("❌ %v\n", err)
 		return
 	}
-	
-	_ = os.MkdirAll(binDir, 0755)
-	classpath := binDir + string(os.PathListSeparator) + filepath.Join(absLib, "*")
 
-	javaFiles, err := FindJavaFiles("src")
+	binDir, _ := filepath.Abs(filepath.Join(".jar-cart", "bin"))
+	_ = os.RemoveAll(binDir)
+	_ = os.MkdirAll(binDir, 0755)
+
+	absLib, _ := filepath.Abs("lib")
+	classpath := binDir + string(os.PathListSeparator) + filepath.Join(absLib, "*")
+	searchPath := input
+	var mainFileToResolve string
+
+	info, err := os.Stat(input)
+	if err == nil && info.IsDir() {
+		javaFiles, _ := FindJavaFiles(input)
+		if len(javaFiles) == 0 {
+			fmt.Printf("❌ Error: No Java source files detected in '%s/'.\n", input)
+			return
+		}
+		mainFileToResolve = javaFiles[0] 
+	} else {
+		searchPath = filepath.Dir(input)
+		mainFileToResolve = input
+	}
+
+	javaFiles, err := FindJavaFiles(searchPath)
 	if err != nil || len(javaFiles) == 0 {
-		fmt.Println("❌ Error: No Java source files detected in 'src/'.")
+		fmt.Printf("❌ Error: No Java source files detected.\n")
 		return
 	}
 
@@ -67,9 +94,8 @@ func RunProject(input string) {
 	argfile.Close()
 	defer os.Remove(argfilePath)
 
-	fmt.Println("⚡ Compiling source tree architecture...")
-	
-	javacCmd := exec.Command("javac", "-cp", classpath, "-d", binDir, "@"+argfilePath)
+	fmt.Printf("⚡ Compiling with JDK %s...\n", javaVersion)
+	javacCmd := exec.Command(javacPath, "-cp", classpath, "-d", binDir, "@"+argfilePath)
 	javacCmd.Stdout = os.Stdout
 	javacCmd.Stderr = os.Stderr
 	
@@ -78,14 +104,14 @@ func RunProject(input string) {
 		return
 	}
 
-	fmt.Printf("🚀 Booting execution engine: %s\n\n", mainClass)
-
-	javaCmd := exec.Command("java", "-cp", classpath, mainClass)
+	mainClass := ResolveMainClass(mainFileToResolve)
+	
+	fmt.Printf("🚀 Booting execution engine (JDK %s): %s\n\n", javaVersion, mainClass)
+	
+	javaCmd := exec.Command(javaPath, "-cp", classpath, mainClass)
 	javaCmd.Stdin = os.Stdin
 	javaCmd.Stdout = os.Stdout
 	javaCmd.Stderr = os.Stderr
-	env := append(os.Environ(), "JAVA_TOOL_OPTIONS=--enable-native-access=ALL-UNNAMED")
-	javaCmd.Env = env
 	
 	if err := javaCmd.Run(); err != nil {
 		fmt.Printf("❌ Execution failed: %v\n", err)
@@ -118,7 +144,12 @@ func RunScript(scriptName string, manifest *models.Manifest) error {
 
 func executeShellCommand(cmdStr string, eventName string) error {
 	var cmd *exec.Cmd
-	
+	_, javacPath, _, err := GetJDKPaths()
+	jdkBinDir := ""
+	if err == nil {
+		jdkBinDir = filepath.Dir(javacPath)
+	}
+
 	exePath, err := os.Executable()
 	if err != nil {
 		exePath = "jar-cart"
@@ -134,10 +165,16 @@ func executeShellCommand(cmdStr string, eventName string) error {
 	}
 	
 	cwd, _ := os.Getwd()
-	cmd.Env = append(os.Environ(), 
+	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, 
 		"INIT_CWD="+cwd,
 		"JAR_CART_LIFECYCLE_EVENT="+eventName,
 	)
+
+	if jdkBinDir != "" {
+		pathSep := string(os.PathListSeparator)
+		cmd.Env = append(cmd.Env, "PATH="+jdkBinDir+pathSep+os.Getenv("PATH"))
+	}
 	
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

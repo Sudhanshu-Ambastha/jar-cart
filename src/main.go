@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
+	"strings"
 
+	"github.com/Sudhanshu-Ambastha/jar-cart/src/models"
+	"github.com/Sudhanshu-Ambastha/jar-cart/src/ui"
 	"github.com/Sudhanshu-Ambastha/jar-cart/src/utils"
 )
 
@@ -33,6 +35,21 @@ func printHelp() {
 	fmt.Println("  help             Displays this documentation")
 }
 
+func isPresentInLib(query string) bool {
+    libDir := "lib"
+    files, err := os.ReadDir(libDir)
+    if err != nil {
+        return false
+    }
+    for _, f := range files {
+        if strings.Contains(f.Name(), query) {
+            fmt.Printf("✅ %s is already present in lib/\n", f.Name())
+            return true
+        }
+    }
+    return false
+}
+
 func main() {
 	utils.AutoCheckUpdate("v0.0.5")
 
@@ -49,7 +66,6 @@ func main() {
 
 	var filteredArgs []string
 	var frozen, useXML, forceJSON bool
-	var flagFramework, flagLang string
 
 	for i := 2; i < len(os.Args); i++ {
 		arg := os.Args[i]
@@ -58,10 +74,6 @@ func main() {
 			frozen = true
 		case (arg == "-m" || arg == "--manifest") && i+1 < len(os.Args):
 			manifestFile = os.Args[i+1]; i++
-		case arg == "--framework" && i+1 < len(os.Args):
-			flagFramework = os.Args[i+1]; i++
-		case arg == "--lang" && i+1 < len(os.Args):
-			flagLang = os.Args[i+1]; i++
 		case arg == "--xml":
 			useXML = true
 		case arg == "--json":
@@ -84,30 +96,27 @@ func main() {
 				projectName = filteredArgs[0]
 			}
 
-			targetDir, err := utils.HandleInit(projectName)
+			manifestFormat, javaVersion := utils.InteractiveInit("25") 
+			
+			manifestType := manifestFormat
+			if useXML { 
+				manifestType = "xml" 
+			}
+
+			targetDir, err := utils.HandleInit(projectName, manifestType)
 			if err != nil {
-				fmt.Printf("❌ Failed to initialize project: %v\n", err)
+				fmt.Printf("❌ Failed: %v\n", err)
 				os.Exit(1)
 			}
 
-			s := "no-build"
-			f := flagFramework
-			if f == "" {
-				f = "Vanilla Java Application" 
-			}
-			l := flagLang
-			if l == "" {
-				l = "Java" 
-			}
-
-			fmt.Printf("\n⚡ Structuring scaffolding for \033[34m%s\033[0m (no-build mode)...\n", targetDir)
-			if err := utils.ExecuteScaffold(targetDir, filepath.Base(targetDir), f, s, l, "25"); err != nil {
+			fmt.Println(ui.TitleStyle.Render("⚡ Scaffolding " + targetDir + " (" + manifestType + " mode)..."))
+			
+			if err := utils.ExecuteScaffold(targetDir, projectName, "Vanilla", "no-build", "Java", javaVersion, manifestType); err != nil {
 				fmt.Printf("❌ Scaffold failed: %v\n", err)
 			} else {
-				fmt.Println("\n\033[32m✨ Project ready! Happy coding! 🛒🏎️💨\033[0m")
-				utils.LaunchWorkspace(targetDir)
+				_ = utils.GenerateLockFile(targetDir, []models.Dependency{})
+				fmt.Println(ui.SuccessStyle.Render("\n✨ Project ready! 🛒"))
 			}
-
 		case "cache-clear":
 			fmt.Println("🧹 Clearing all cached blueprints and registry data...")
 			if err := utils.CleanCache(); err != nil {
@@ -125,42 +134,119 @@ func main() {
 
 		case "sync":
 			fmt.Printf("📦 Synchronizing via: %s (Frozen: %v)\n", manifestFile, frozen)
-			dependencies, err := utils.ParseManifest(manifestFile)
+			
+			manifest, err := utils.LoadManifest(manifestFile)
 			if err != nil {
-				fmt.Printf("❌ Manifest parsing failure: %v\n", err)
+				fmt.Printf("❌ Manifest loading failure: %v\n", err)
 				os.Exit(1)
 			}
-			_ = utils.EnsureJavaVersion("25")
-			lockEntries, err := utils.ResolveParallelDependencies(".", dependencies)
+
+			javaVersion := manifest.JavaVersion
+			if javaVersion == "" {
+				javaVersion = "25"
+			}
+			fmt.Printf("🔍 Using Java version: %s\n", javaVersion)
+
+			if err := utils.EnsureJavaVersion(javaVersion); err != nil {
+				fmt.Printf("❌ Failed to ensure Java %s: %v\n", javaVersion, err)
+				os.Exit(1)
+			}
+
+			lockEntries, err := utils.ResolveParallelDependencies(".", manifest.Dependencies)
 			if err != nil {
 				fmt.Printf("❌ Workspace synchronization loop failed: %v\n", err)
 				os.Exit(1)
 			}
+
 			err = utils.CleanupLibDir(".", lockEntries)
 			if err != nil {
 				fmt.Printf("❌ Cleanup failed: %v\n", err)
 				os.Exit(1)
 			}
-			lock := utils.LockFile{
-				Version: 1, GeneratedAt: time.Now().Format(time.RFC3339), Dependencies: lockEntries,
-			}
-			_ = utils.WriteLockFile(".", &lock)
+
 			fmt.Println("✨ Dependencies synced and linked perfectly!")
 
 		case "add":
 			if len(filteredArgs) < 1 {
-				fmt.Println("❌ Error: 'add' requires at least one target coordinate.")
+				fmt.Println("❌ Error: 'add' requires a package name.")
 				os.Exit(1)
 			}
-			for _, coord := range filteredArgs {
-				fmt.Printf("➕ Adding: %s\n", coord)
-				if err := utils.AddDependency(manifestFile, coord, false, "lib"); err != nil {
-					fmt.Printf("❌ Failed to add %s: %v\n", coord, err)
-					os.Exit(1) 
+
+			for _, query := range filteredArgs {
+				var g, a, v string
+				matches := utils.ScanLocalCache(query)
+
+				if len(matches) > 0 {
+					if len(matches) > 1 {
+						options := make(map[string]string)
+						for _, path := range matches {
+							display := strings.ReplaceAll(path, string(os.PathSeparator), ":")
+							options[display] = path
+						}
+
+						selectedPath, ok := utils.InteractiveSelection(options)
+						if !ok { continue }
+
+						dir := filepath.Dir(filepath.Clean(selectedPath))
+						filename := filepath.Base(filepath.Clean(selectedPath))
+						g = strings.ReplaceAll(dir, string(os.PathSeparator), ".")
+						base := strings.TrimSuffix(filename, ".jar")
+						lastDash := strings.LastIndex(base, "-")
+						if lastDash != -1 {
+							a = base[:lastDash]
+							v = base[lastDash+1:]
+						}
+					} else {
+						path := matches[0]
+						dir := filepath.Dir(filepath.Clean(path))
+						filename := filepath.Base(filepath.Clean(path))
+						g = strings.ReplaceAll(dir, string(os.PathSeparator), ".")
+						base := strings.TrimSuffix(filename, ".jar")
+						lastDash := strings.LastIndex(base, "-")
+						if lastDash != -1 {
+							a = base[:lastDash]
+							v = base[lastDash+1:]
+						}
+						fmt.Printf("🔍 Found in cache: %s:%s:%s\n", g, a, v)
+					}
+				} else {
+					if !utils.IsOnline() {
+						fmt.Printf("❌ '%s' not found in cache and network is offline.\n", query)
+						continue
+					}
+
+					suggestions := utils.GetSearchSuggestions(query)
+					if len(suggestions) == 0 {
+						fmt.Printf("❌ No results found for '%s' in cache or online.\n", query)
+						continue
+					}
+
+					onlineOptions := make(map[string]string)
+					for _, res := range suggestions {
+						display := fmt.Sprintf("%s:%s:%s", res.G, res.A, res.LatestVersion)
+						onlineOptions[display] = display
+					}
+
+					targetCoord, ok := utils.InteractiveSelection(onlineOptions)
+					if !ok { continue }
+
+					parts := strings.Split(targetCoord, ":")
+					if len(parts) == 3 {
+						g, a, v = parts[0], parts[1], parts[2]
+					} else {
+						continue
+					}
+				}
+
+				target := fmt.Sprintf("%s:%s:%s", g, a, v)
+				fmt.Printf("➕ Processing: %s\n", target)
+
+				if err := utils.AddDependency(manifestFile, target, false, "lib"); err != nil {
+					fmt.Printf("⚠️ Sync failed: %v\n", err)
+				} else {
+					fmt.Printf("✅ %s processed successfully!\n", target)
 				}
 			}
-			fmt.Println("✨ All dependencies updated and locked successfully!")
-
 		case "remove", "rm":
 			if len(filteredArgs) < 1 {
 				fmt.Println("❌ Error: 'remove' requires target coordinates.")
@@ -170,6 +256,7 @@ func main() {
 				fmt.Printf("❌ Dependency removal failure: %v\n", err)
 				os.Exit(1)
 			}
+			fmt.Println("✨ Dependency removed and lockfile updated.")
 
 		case "convert":
 			if len(filteredArgs) < 1 {

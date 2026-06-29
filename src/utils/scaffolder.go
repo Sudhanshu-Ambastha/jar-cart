@@ -14,6 +14,8 @@ import (
 	"strings"
 	"text/template"
 	"time"
+
+	"github.com/Sudhanshu-Ambastha/jar-cart/src/models"
 )
 
 var Verbose bool
@@ -48,20 +50,33 @@ func CleanCache() error {
 	return os.RemoveAll(filepath.Join(home, ".jar-cart", "cache"))
 }
 
-func HandleInit(projectName string) (string, error) {
+func HandleInit(projectName, manifestType string) (string, error) {
 	var targetDir string
 
 	if projectName == "." {
 		targetDir, _ = os.Getwd()
 	} else {
 		targetDir = projectName
-		os.MkdirAll(targetDir, 0755)
+		if err := os.MkdirAll(targetDir, 0755); err != nil {
+			return "", err
+		}
 	}
 
-	os.MkdirAll(filepath.Join(targetDir, "bin"), 0755)
-	os.MkdirAll(filepath.Join(targetDir, "lib"), 0755)
-	os.MkdirAll(filepath.Join(targetDir, "src"), 0755)
+	jsonPath := filepath.Join(targetDir, "jar-cart.json")
+	xmlPath := filepath.Join(targetDir, "jar-cart.xml")
 
+	if manifestType == "xml" {
+		_ = os.Remove(jsonPath)
+	} else {
+		_ = os.Remove(xmlPath)
+	}
+
+	for _, dir := range []string{"bin", "lib", "src"} {
+		if err := os.MkdirAll(filepath.Join(targetDir, dir), 0755); err != nil {
+			return targetDir, err
+		}
+	}
+	
 	appCode := `package src;
 
 public class App {
@@ -69,52 +84,75 @@ public class App {
         System.out.println("Hello, jar-cart! Your project is ready. 🚀");
     }
 }`
-	os.WriteFile(filepath.Join(targetDir, "src", "App.java"), []byte(appCode), 0644)
-
-	config := Config{
-		Project:  filepath.Base(targetDir),
-		Strategy: "Include All Dependencies",
-		Scripts: map[string]string{
-			"hello":    "echo 'Hello from jar-cart!'",
-			"pretest":  "echo 'Compiling tests...'",
-			"test":     "echo 'Running tests...'",
-			"posttest": "echo 'Cleaning up test artifacts...'",
-		},
-		Dependencies: []interface{}{},
+	if err := os.WriteFile(filepath.Join(targetDir, "src", "App.java"), []byte(appCode), 0644); err != nil {
+		return targetDir, err
 	}
 
-	configData, _ := json.MarshalIndent(config, "", "    ")
-	err := os.WriteFile(filepath.Join(targetDir, "jar-cart.json"), configData, 0644)
-	
-	return targetDir, err
-}
+	javaVersion := "25"
 
-func ExecuteScaffold(projectDir, projectName, framework, strategy, lang, javaVersion string) error {
-	if javaVersion == "" {
-		javaVersion = "25"
-	}
-
-	manifestPath := filepath.Join(projectDir, "jar-cart.json")
-	srcPath := filepath.Join(projectDir, "src")
-
-	type ManifestFile struct {
-		Project      string            `json:"project"`
-		Strategy     string            `json:"strategy"`
-		Scripts      map[string]string `json:"scripts"`
-		Dependencies []interface{}     `json:"dependencies"`
-	}
-
-	if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
-		m := ManifestFile{
-			Project:  projectName,
-			Strategy: strategy,
+	var err error
+	if manifestType == "xml" {
+		xmlContent := `<?xml version="1.0" encoding="UTF-8"?>
+<Manifest>
+    <project>` + filepath.Base(targetDir) + `</project>
+    <java_version>` + javaVersion + `</java_version>
+    <strategy>Include All Dependencies</strategy>
+    <scripts>
+        <script name="hello">echo 'Hello from jar-cart!'</script>
+        <script name="pretest">echo 'Compiling tests...'</script>
+        <script name="test">echo 'Running tests...'</script>
+        <script name="posttest">echo 'Cleaning up test artifacts...'</script>
+    </scripts>
+    <dependencies></dependencies>
+</Manifest>`
+		err = os.WriteFile(xmlPath, []byte(xmlContent), 0644)
+	} else {
+		config := models.Manifest{
+			Project:     filepath.Base(targetDir),
+			JavaVersion: javaVersion,
+			Strategy:    "Include All Dependencies",
 			Scripts: map[string]string{
 				"hello":    "echo 'Hello from jar-cart!'",
 				"pretest":  "echo 'Compiling tests...'",
 				"test":     "echo 'Running tests...'",
 				"posttest": "echo 'Cleaning up test artifacts...'",
 			},
-			Dependencies: []interface{}{},
+			Dependencies: []models.Dependency{},
+		}
+		
+		var configData []byte
+		configData, err = json.MarshalIndent(config, "", "    ")
+		if err == nil {
+			err = os.WriteFile(jsonPath, configData, 0644)
+		}
+	}
+	
+	return targetDir, err
+}
+
+func ExecuteScaffold(projectDir, projectName, framework, strategy, lang, javaVersion, manifestType string) error {
+	if javaVersion == "" {
+		javaVersion = "25"
+	}
+
+	manifestName := "jar-cart.json"
+	if manifestType == "xml" {
+		manifestName = "jar-cart.xml"
+	}
+	manifestPath := filepath.Join(projectDir, manifestName)
+	srcPath := filepath.Join(projectDir, "src")
+	if _, err := os.Stat(manifestPath); os.IsNotExist(err) && manifestType == "json" {
+		m := models.Manifest{
+			Project:     projectName,
+			JavaVersion: javaVersion,
+			Strategy:    strategy,
+			Scripts: map[string]string{
+				"hello":    "echo 'Hello from jar-cart!'",
+				"pretest":  "echo 'Compiling tests...'",
+				"test":     "echo 'Running tests...'",
+				"posttest": "echo 'Cleaning up test artifacts...'",
+			},
+			Dependencies: []models.Dependency{},
 		}
 		data, _ := json.MarshalIndent(m, "", "    ")
 		_ = os.WriteFile(manifestPath, data, 0644)
@@ -129,7 +167,6 @@ public class App {
     } 
 }`
 	_ = os.WriteFile(filepath.Join(srcPath, "App.java"), []byte(code), 0644)
-
 	if strategy == "no-build" {
 		return nil
 	}

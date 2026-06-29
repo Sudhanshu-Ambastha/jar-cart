@@ -2,12 +2,22 @@ package utils
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
+
+type SearchResult struct {
+	G             string
+	A             string
+	LatestVersion string
+}
 
 type MavenResponse struct {
 	Response struct {
@@ -18,6 +28,12 @@ type MavenResponse struct {
 			LatestVersion string `json:"latestVersion"`
 		} `json:"docs"`
 	} `json:"response"`
+}
+
+type MavenMetadata struct {
+    Versioning struct {
+        Latest string `xml:"latest"`
+    } `xml:"versioning"`
 }
 
 func FetchLatestVersions(coords []string) map[string]string {
@@ -45,39 +61,84 @@ func FetchLatestVersions(coords []string) map[string]string {
 	return results
 }
 
-func GetSearchSuggestions(query string) []struct{ G, A, LatestVersion string } {
-    boostedQuery := fmt.Sprintf("a:%s^10 OR g:%s^2", query, query)
-    apiURL := fmt.Sprintf("https://search.maven.org/solrsearch/select?q=%s&rows=10&wt=json", url.QueryEscape(boostedQuery))
-
-    resp, err := http.Get(apiURL)
-    if err != nil { return nil }
-    defer resp.Body.Close()
-
-    var data MavenResponse
-    json.NewDecoder(resp.Body).Decode(&data)
-    
-    var results []struct{ G, A, LatestVersion string }
-    for _, doc := range data.Response.Docs {
-        results = append(results, struct{ G, A, LatestVersion string }{doc.G, doc.A, doc.LatestVersion})
+func GetBestMatch(query string) (group string, artifact string, latest string, err error) {
+    results := GetSearchSuggestions(query)
+    if len(results) == 0 {
+        return "", "", "", fmt.Errorf("no results found")
     }
-    return results
+	
+    return results[0].G, results[0].A, results[0].LatestVersion, nil
 }
 
-func GetLatestVersionFromMaven(group, lib string) string {
-	apiURL := fmt.Sprintf("https://search.maven.org/solrsearch/select?q=g:%s+AND+a:%s&rows=1&wt=json", 
-		url.QueryEscape(group), url.QueryEscape(lib)) 
+func ScanLocalCache(query string) []string {
+    home, _ := os.UserHomeDir()
+    cacheDir := filepath.Join(home, ".jar-cart", "cache")
+    var matches []string
 
-	resp, err := http.Get(apiURL)
+    if _, err := os.Stat(cacheDir); os.IsNotExist(err) {
+        return matches 
+    }
+
+    filepath.WalkDir(cacheDir, func(path string, d os.DirEntry, err error) error {
+        if err != nil { return nil }
+        
+        if !d.IsDir() && strings.Contains(d.Name(), query) {
+            rel, _ := filepath.Rel(cacheDir, path)
+            matches = append(matches, rel)
+        }
+        return nil
+    })
+    return matches
+}
+
+func GetSearchSuggestions(query string) []SearchResult {
+	apiURL := fmt.Sprintf("https://search.maven.org/solrsearch/select?q=a:%s*&rows=20&wt=json", url.QueryEscape(query))
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(apiURL)
 	if err != nil {
-		return ""
+		fmt.Printf("❌ Network error: %v\n", err)
+		return nil
 	}
 	defer resp.Body.Close()
 
-	var data MavenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&data); err == nil && len(data.Response.Docs) > 0 {
-		return data.Response.Docs[0].LatestVersion
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("❌ Search API returned status: %d\n", resp.StatusCode)
+		return nil
 	}
-	return ""
+
+	var data MavenResponse
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		fmt.Printf("❌ Failed to parse JSON: %v\n", err)
+		return nil
+	}
+
+	var results []SearchResult
+	for _, doc := range data.Response.Docs {
+		results = append(results, SearchResult{
+			G:             doc.G,
+			A:             doc.A,
+			LatestVersion: doc.LatestVersion,
+		})
+	}
+	return results
+}
+
+func GetLatestVersionFromMaven(group, lib string) string {
+    groupPath := strings.ReplaceAll(group, ".", "/")
+    url := fmt.Sprintf("https://repo1.maven.org/maven2/%s/%s/maven-metadata.xml", groupPath, lib)
+
+    resp, err := http.Get(url)
+    if err != nil || resp.StatusCode != http.StatusOK {
+        return ""
+    }
+    defer resp.Body.Close()
+
+    var meta MavenMetadata
+    if err := xml.NewDecoder(resp.Body).Decode(&meta); err == nil {
+        return meta.Versioning.Latest
+    }
+    return ""
 }
 
 func SearchMavenCentral(query string) {

@@ -23,7 +23,7 @@ _Note: This is version 1.0 of the manager._
 
 ### ☕ Isolated Runtimes
 
-- **Automated JDK Provisioning:** Forget `JAVA_HOME` configuration. `jar-cart` automatically downloads and isolates specific JDK versions for each project.
+- **Project-Level Version Locking:** Specify any JDK version in `jar-cart.json`. `jar-cart` handles the provisioning, isolation, and version-switching automatically, ensuring your project always runs on the exact runtime it expects.
 
 ### 📜 Custom Script Runner
 
@@ -76,13 +76,9 @@ cd my-app
 ```json
 {
   "project": "my-app",
+  "java_version": "25",
   "strategy": "Include All Dependencies",
-  "scripts": {
-    "hello": "echo 'Hello from jar-cart!'",
-    "test": "echo 'Running tests...'",
-    "pretest": "echo 'Compiling tests...'",
-    "posttest": "echo 'Cleaning up test artifacts...'"
-  },
+  "scripts": { ... },
   "dependencies": []
 }
 ```
@@ -100,18 +96,18 @@ jar-cart run test
 
 ## 📋 Commands
 
-| Command          | Description                                                         |
-| ---------------- | ------------------------------------------------------------------- |
-| `init`           | Creates an interactive or default project layout.                   |
-| `add <pkg>`      | Adds an artifact to the manifest and resolves dependencies.         |
-| `sync`           | Downloads dependencies and synchronizes the project runtime.        |
-| `run <name>`     | Executes a Java source file OR a script defined in `jar-cart.json`. |
-| `run-jar`        | Runs the built JAR using the project's isolated JDK.                |
-| `remove <pkg>`   | Removes a dependency and cleans associated links.                   |
-| `convert <type>` | Converts manifest formats (e.g., `json` to `xml`).                  |
-| `cache-clear`    | Clears cached artifacts and metadata.                               |
-| `watch <path>`   | Starts a reactive file-watcher for live reloads.                    |
-| `build`          | Packages the project into a standalone, portable Fat JAR.           |
+| Command          | Description                                                  |
+| ---------------- | ------------------------------------------------------------ |
+| `init`           | Creates an interactive or default project layout.            |
+| `add <pkg>`      | Adds an artifact to the manifest and resolves dependencies.  |
+| `sync`           | Downloads dependencies and synchronizes the project runtime. |
+| `run <path>`     | Compiles with the **project-locked JDK** and executes.       |
+| `run-jar`        | Runs the built JAR using the project's isolated JDK.         |
+| `remove <pkg>`   | Removes a dependency and cleans associated links.            |
+| `convert <type>` | Converts manifest formats (e.g., `json` to `xml`).           |
+| `cache-clear`    | Clears cached artifacts and metadata.                        |
+| `watch <path>`   | Starts a reactive file-watcher for live reloads.             |
+| `build`          | Packages the project into a standalone, portable Fat JAR.    |
 
 ---
 
@@ -119,7 +115,7 @@ jar-cart run test
 
 ### Isolated Java Runtimes
 
-`jar-cart` manages Java runtimes inside `~/.jar-cart/jdks/`. When you run a project, the tool ensures the requested version is provisioned, keeping your system clean and your projects reproducible.
+`jar-cart` bypasses the system's global `PATH` and `JAVA_HOME`. By locking your project to a specific JDK version in your `jar-cart.json`, the tool manages a local, immutable toolchain for each project, guaranteeing identical behavior across all environments.
 
 ### Content Addressable Storage (CAS)
 

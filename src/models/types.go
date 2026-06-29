@@ -18,10 +18,10 @@ type Script struct {
 type Manifest struct {
 	XMLName      xml.Name          `json:"-" xml:"Manifest"`
 	Project      string            `json:"project" xml:"project"`
-	Strategy     string            `json:"strategy" xml:"strategy"`
 	JavaVersion  string            `json:"java_version" xml:"java_version"`
+	Strategy     string            `json:"strategy" xml:"strategy"`
+	Scripts      map[string]string `json:"scripts,omitempty" xml:"-"`
 	Dependencies []Dependency      `json:"dependencies" xml:"dependencies>dependency"`
-	Scripts      map[string]string `json:"scripts,omitempty" xml:"-"` 
 	XMLScripts   []Script          `json:"-" xml:"scripts>script"`
 }
 

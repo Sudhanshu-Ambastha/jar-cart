@@ -1,8 +1,6 @@
 package utils
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -12,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Sudhanshu-Ambastha/jar-cart/src/models"
 )
@@ -32,6 +31,19 @@ func isFileValid(path string, expectedHash string) bool {
 	}
 	actualHash, err := CalculateSHA256(path)
 	return err == nil && actualHash == expectedHash
+}
+
+var onlineStatus *bool
+
+func IsOnline() bool {
+    if onlineStatus != nil {
+        return *onlineStatus
+    }
+    client := http.Client{Timeout: 2 * time.Second}
+    _, err := client.Get("https://repo1.maven.org/maven2")
+    status := (err == nil)
+    onlineStatus = &status
+    return status
 }
 
 func CleanupLibDir(projectDir string, expectedEntries map[string]LockEntry) error {
@@ -103,10 +115,7 @@ func GetTransitiveDependencies(dep models.Dependency) ([]models.Dependency, erro
 }
 
 func ResolveParallelDependencies(projectDir string, dependencies []models.Dependency) (map[string]LockEntry, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get home directory: %v", err)
-	}
+	homeDir, _ := os.UserHomeDir()
 	globalCacheDir := filepath.Join(homeDir, ".jar-cart", "cache")
 
 	fullDepMap := make(map[string]models.Dependency)
@@ -116,10 +125,18 @@ func ResolveParallelDependencies(projectDir string, dependencies []models.Depend
 		dep := queue[0]
 		queue = queue[1:]
 		key := fmt.Sprintf("%s:%s", dep.Group, dep.Library)
+		
 		if _, exists := fullDepMap[key]; !exists {
 			fullDepMap[key] = dep
-			if transitives, err := GetTransitiveDependencies(dep); err == nil {
-				queue = append(queue, transitives...)
+			if IsOnline() {
+				transitives, err := GetTransitiveDependencies(dep)
+				if err == nil {
+					queue = append(queue, transitives...)
+				} else {
+					fmt.Printf("⚠️ Could not resolve transitives for %s:%s (POM missing)\n", dep.Group, dep.Library)
+				}
+			} else {
+				fmt.Printf("🌐 Offline mode: Skipping transitive resolution for %s\n", dep.Library)
 			}
 		}
 	}
@@ -152,51 +169,88 @@ func ResolveParallelDependencies(projectDir string, dependencies []models.Depend
 		if res.Error != nil {
 			return nil, res.Error
 		}
+		
 		jarName := fmt.Sprintf("%s-%s.jar", res.Dep.Library, res.Dep.Version)
 		jarPath := filepath.Join(projectDir, "lib", jarName)
-		hash, _ := CalculateSHA256(jarPath)
-		info, _ := os.Stat(jarPath)
-		lockEntries[res.Dep.Group+":"+res.Dep.Library] = LockEntry{
-			Path:   filepath.Join("lib", jarName),
-			Size:   info.Size(),
-			SHA256: hash,
+		
+		if _, err := os.Stat(jarPath); err == nil {
+			hash, _ := CalculateSHA256(jarPath)
+			info, _ := os.Stat(jarPath)
+			lockEntries[res.Dep.Group+":"+res.Dep.Library] = LockEntry{
+				Path:   filepath.Join("lib", jarName),
+				Size:   info.Size(),
+				SHA256: hash,
+			}
 		}
 	}
 	return lockEntries, nil
 }
 
+func downloadWithMirrors(dep models.Dependency, targetPath string) error {
+    mirrors := []string{
+        "https://repo1.maven.org/maven2",
+        "https://repo.maven.apache.org/maven2",
+        "https://maven.aliyun.com/repository/public",
+    }
+    
+    groupURLPath := strings.ReplaceAll(dep.Group, ".", "/")
+    jarName := fmt.Sprintf("%s-%s.jar", dep.Library, dep.Version)
+    
+    for _, base := range mirrors {
+        url := fmt.Sprintf("%s/%s/%s/%s/%s", base, groupURLPath, dep.Library, dep.Version, jarName)
+        fmt.Printf("📥 Trying to download from: %s\n", base)
+        if err := streamAndCacheAsset(url, targetPath); err == nil {
+            return nil
+        }
+    }
+    return fmt.Errorf("failed to download from all mirrors")
+}
+
+func ResolveCacheToCoordinate(filename string) string {
+    base := strings.TrimSuffix(filename, ".jar")
+    parts := strings.Split(base, "-")
+    version := parts[len(parts)-1]
+    artifact := strings.Join(parts[:len(parts)-1], "-")
+    return fmt.Sprintf("org.xerial:%s:%s", artifact, version)
+}
+
+func linkFromCacheToLib(src, dst string) error {
+    if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+        return fmt.Errorf("failed to create lib dir: %w", err)
+    }
+    _ = os.Remove(dst)
+    err := os.Link(src, dst)
+    if err != nil {
+        return fallbackFileCopy(src, dst)
+    }
+    fmt.Printf("🔗 Linked: %s\n", filepath.Base(dst))
+    return nil
+}
+
 func processDependencyExecution(dep models.Dependency, globalCacheDir, localLibDir string) error {
-	jarName := fmt.Sprintf("%s-%s.jar", dep.Library, dep.Version)
-	coordHash := sha256.Sum256([]byte(fmt.Sprintf("%s:%s:%s", dep.Group, dep.Library, dep.Version)))
-	hashStr := hex.EncodeToString(coordHash[:12])
-	cachePackageDir := filepath.Join(globalCacheDir, hashStr)
-	cachedJarPath := filepath.Join(cachePackageDir, jarName)
-	targetLocalJarPath := filepath.Join(localLibDir, jarName)
+    jarName := fmt.Sprintf("%s-%s.jar", dep.Library, dep.Version)
+    targetLocalJarPath := filepath.Join(localLibDir, jarName)
+    if isFileValid(targetLocalJarPath, "") {
+        return nil
+    }
 
-	if isFileValid(targetLocalJarPath, "") {
-		return nil
-	}
+    sanitizedGroup := strings.ReplaceAll(dep.Group, ".", string(os.PathSeparator))
+    cacheFolder := filepath.Join(globalCacheDir, sanitizedGroup)
+    cachedJarPath := filepath.Join(cacheFolder, jarName)
+    
+    if isFileValid(cachedJarPath, "") {
+        return linkFromCacheToLib(cachedJarPath, targetLocalJarPath)
+    }
+    if !IsOnline() {
+        return fmt.Errorf("network offline and '%s' not in cache", jarName)
+    }
 
-	if !isFileValid(cachedJarPath, "") {
-		fmt.Printf("📥 Downloading: %s\n", jarName)
-		_ = os.MkdirAll(cachePackageDir, 0755)
-		groupURLPath := strings.ReplaceAll(dep.Group, ".", "/")
-		url := fmt.Sprintf("https://repo1.maven.org/maven2/%s/%s/%s/%s-%s.jar",
-			groupURLPath, dep.Library, dep.Version, dep.Library, dep.Version)
+    os.MkdirAll(cacheFolder, 0755)
+    if err := downloadWithMirrors(dep, cachedJarPath); err != nil {
+        return err
+    }
 
-		if err := streamAndCacheAsset(url, cachedJarPath); err != nil {
-			return err
-		}
-	}
-
-	fmt.Printf("📦 Cached: %s\n", jarName)
-
-	_ = os.Remove(targetLocalJarPath)
-	err := os.Link(cachedJarPath, targetLocalJarPath)
-	if err != nil {
-		return fallbackFileCopy(cachedJarPath, targetLocalJarPath)
-	}
-	return nil
+    return linkFromCacheToLib(cachedJarPath, targetLocalJarPath)
 }
 
 func streamAndCacheAsset(url, targetPath string) error {
