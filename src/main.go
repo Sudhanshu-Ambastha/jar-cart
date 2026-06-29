@@ -8,6 +8,7 @@ import (
 
 	"github.com/Sudhanshu-Ambastha/jar-cart/src/models"
 	"github.com/Sudhanshu-Ambastha/jar-cart/src/ui"
+	"github.com/Sudhanshu-Ambastha/jar-cart/src/ui/components"
 	"github.com/Sudhanshu-Ambastha/jar-cart/src/utils"
 )
 
@@ -17,22 +18,9 @@ const (
 )
 
 func printHelp() {
-	fmt.Println("🛒 jar-cart — Modern, zero-config package manager & runner for Java")
-	fmt.Println("\nUsage:")
-	fmt.Println("  jar-cart <command> [arguments] [flags]")
-	fmt.Println("\nCommands:")
-	fmt.Println("  init             Constructs an interactive or default blueprint layout")
-	fmt.Println("  cache-clear      Clears all cached blueprints and registry data")
-	fmt.Println("  search <query>   Searches Maven Central API for packages")
-	fmt.Println("  sync             Synchronizes dependencies")
-	fmt.Println("  add <pkg>        Appends an artifact dependency to your manifest")
-	fmt.Println("  remove <pkg>     Strips an artifact marker and cleans up the local JAR")
-	fmt.Println("  convert <type>   Translates configuration contexts (json|xml)")
-	fmt.Println("  run <path>       Compiles and runs a target Java source file OR a script defined in jar-cart.json")
-	fmt.Println("  run-jar <class>  Runs the built JAR with all dependencies/native access")
-	fmt.Println("  watch <path>     Starts a reactive file-watcher for live reloads")
-	fmt.Println("  build            Packages the project into a portable Fat JAR")
-	fmt.Println("  help             Displays this documentation")
+    fmt.Println("🛒 jar-cart — Modern, zero-config package manager & runner for Java\n")
+    t := components.HelpTable()
+    fmt.Println(t.View())
 }
 
 func isPresentInLib(query string) bool {

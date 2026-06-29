@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -11,12 +12,69 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/table"
+	tea "charm.land/bubbletea/v2"
+	"github.com/Sudhanshu-Ambastha/jar-cart/src/ui/components"
 )
 
 type SearchResult struct {
 	G             string
 	A             string
 	LatestVersion string
+}
+type model struct {
+	spinner spinner.Model
+	loading bool
+	results []SearchResult
+	query   string
+	err     error
+}
+
+type searchMsg []SearchResult
+type errMsg struct{ err error }
+
+func (m model) Init() tea.Cmd {
+	return tea.Batch(m.spinner.Tick, m.performSearchCmd)
+}
+
+func (m model) performSearchCmd() tea.Msg {
+	results := GetSearchSuggestions(m.query)
+	if results == nil {
+		return errMsg{fmt.Errorf("no results found")}
+	}
+	return searchMsg(results)
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		if msg.String() == "ctrl+c" {
+			return m, tea.Quit
+		}
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+	case searchMsg:
+		m.loading = false
+		m.results = msg
+		return m, tea.Quit
+	case errMsg:
+		m.err = msg.err
+		m.loading = false
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m model) View() tea.View {
+	if m.loading {
+		return tea.NewView(fmt.Sprintf("\n 🔍 Searching Maven Central for: %s %s\n", 
+			m.query, m.spinner.View()))
+	}
+	return tea.NewView("")
 }
 
 type MavenResponse struct {
@@ -112,24 +170,33 @@ func ScanLocalCache(query string) []string {
 }
 
 func GetSearchSuggestions(query string) []SearchResult {
-	apiURL := fmt.Sprintf("https://search.maven.org/solrsearch/select?q=a:%s*&rows=20&wt=json", url.QueryEscape(query))
+	apiURL := fmt.Sprintf("https://search.maven.org/solrsearch/select?q=%s&rows=20&wt=json", url.QueryEscape(query))
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second, 
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		ResponseHeaderTimeout: 15 * time.Second, 
+		TLSHandshakeTimeout:   10 * time.Second,
+	}
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := &http.Client{
+		Timeout:   30 * time.Second, 
+		Transport: transport,
+	}
+
 	resp, err := client.Get(apiURL)
 	if err != nil {
-		fmt.Printf("❌ Network error: %v\n", err)
 		return nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		fmt.Printf("❌ Search API returned status: %d\n", resp.StatusCode)
 		return nil
 	}
 
 	var data MavenResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		fmt.Printf("❌ Failed to parse JSON: %v\n", err)
 		return nil
 	}
 
@@ -162,32 +229,36 @@ func GetLatestVersionFromMaven(group, lib string) string {
 }
 
 func SearchMavenCentral(query string) {
-	fmt.Printf("🔍 Searching Maven Central for: \033[36m%s\033[0m...\n\n", query)
+	s := components.NewStyledSpinner(spinner.Points, "86") 
+	m := model{
+		spinner: s,
+		loading: true,
+		query:   query,
+	}
 
-	boostedQuery := fmt.Sprintf("a:%s^10 OR g:%s^2 OR %s", query, query, query)
-	apiURL := fmt.Sprintf("https://search.maven.org/solrsearch/select?q=%s&rows=10&wt=json", url.QueryEscape(boostedQuery))
-
-	resp, err := http.Get(apiURL)
+	p := tea.NewProgram(m)
+	finalModel, err := p.Run()
 	if err != nil {
-		fmt.Printf("❌ Failed to reach search endpoint: %v\n", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	var data MavenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		fmt.Printf("❌ Failed to parse response: %v\n", err)
-		return
+		fmt.Printf("❌ TUI Error: %v\n", err)
+		os.Exit(1)
 	}
 
-	if len(data.Response.Docs) == 0 {
-		fmt.Println("ℹ️ No matching dependencies found.")
-		return
-	}
+	m = finalModel.(model)
+	fmt.Printf("DEBUG: Search complete. Found %d results for '%s'\n", len(m.results), query)
+	if len(m.results) > 0 {
+        columns := []table.Column{
+            {Title: "Coordinate (Group:Artifact)", Width: 55},
+            {Title: "Latest", Width: 15},
+        }
 
-	fmt.Printf("\033[1m%-55s %-20s\033[0m\n", "Coordinate Notation (Group:Artifact)", "Latest Version")
-	fmt.Println("-----------------------------------------------------------------------------")
-	for _, doc := range data.Response.Docs {
-		fmt.Printf("\033[32m%-55s\033[0m %-20s\n", doc.G+":"+doc.A, doc.LatestVersion)
-	}
+        rows := []table.Row{}
+        for _, doc := range m.results {
+            rows = append(rows, table.Row{doc.G + ":" + doc.A, doc.LatestVersion})
+        }
+
+        t := components.NewDependencyTable(columns, rows)
+        fmt.Println(t.View())
+    } else {
+        fmt.Println("ℹ️ No results found. (Maven Central may be rate-limiting. Try again in a moment.)")
+    }
 }
