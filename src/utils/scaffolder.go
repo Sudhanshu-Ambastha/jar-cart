@@ -110,8 +110,7 @@ public class App {
 		config := models.Manifest{
 			Project:     filepath.Base(targetDir),
 			JavaVersion: javaVersion,
-			Strategy:    "Include All Dependencies",
-			ResolveTransitives: true,
+			ResolutionDepth:    "full",
 			Scripts: map[string]string{
 				"hello":    "echo 'Hello from jar-cart!'",
 				"pretest":  "echo 'Compiling tests...'",
@@ -146,7 +145,7 @@ func ExecuteScaffold(projectDir, projectName, framework, strategy, lang, javaVer
 		m := models.Manifest{
 			Project:     projectName,
 			JavaVersion: javaVersion,
-			Strategy:    strategy,
+			ResolutionDepth: "full",
 			Scripts: map[string]string{
 				"hello":    "echo 'Hello from jar-cart!'",
 				"pretest":  "echo 'Compiling tests...'",

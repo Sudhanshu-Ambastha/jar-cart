@@ -111,7 +111,8 @@ func AddDependency(manifestPath, rawCoordinate string, isDirect bool, libDir str
 	}
 
 	log.Info("Synchronizing dependency", "dep", group+":"+lib)
-	shouldResolve := manifest.ResolveTransitives 
+	shouldResolve := (manifest.ResolutionDepth == "full")
+	
 	if _, err := ResolveParallelDependencies(".", []models.Dependency{newDep}, shouldResolve); err != nil {
 		return err
 	}
@@ -163,7 +164,6 @@ func RunSync(projectDir string) error {
 
 	manifestFiles := []string{"jar-cart.json", "jar-cart.xml", "build.gradle", "pom.xml"}
 	var manifestPath string
-
 	for _, f := range manifestFiles {
 		fullPath := filepath.Join(absDir, f)
 		if _, err := os.Stat(fullPath); err == nil {
@@ -182,7 +182,8 @@ func RunSync(projectDir string) error {
 		return fmt.Errorf("load manifest error: %v", err)
 	}
 
-	lockEntries, err := ResolveParallelDependencies(absDir, manifest.Dependencies, manifest.ResolveTransitives)
+	shouldResolve := (manifest.ResolutionDepth == "full")
+	lockEntries, err := ResolveParallelDependencies(absDir, manifest.Dependencies, shouldResolve)
 	if err != nil {
 		return fmt.Errorf("resolve error: %v", err)
 	}

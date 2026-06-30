@@ -14,9 +14,9 @@ type GradleAdapter struct {
 
 func (a *GradleAdapter) Load(path string) (*models.Manifest, error) {
 	return &models.Manifest{
-		Project:  "gradle-project", 
-		Strategy: "gradle", 
-		Scripts:  make(map[string]string),
+		Project:         "gradle-project", 
+		ResolutionDepth: "full", 
+		Scripts:         make(map[string]string),
 	}, nil
 }
 

@@ -77,7 +77,7 @@ cd my-app
 {
   "project": "my-app",
   "java_version": "25",
-  "strategy": "Include All Dependencies",
+  "resolution_depth": "full",
   "scripts": { ... },
   "dependencies": []
 }
@@ -96,18 +96,18 @@ jar-cart run test
 
 ## 📋 Commands
 
-| Command          | Description                                                  |
-| ---------------- | ------------------------------------------------------------ |
-| `init`           | Creates an interactive or default project layout.            |
-| `add <pkg>`      | Adds an artifact to the manifest and resolves dependencies.  |
-| `sync`           | Downloads dependencies and synchronizes the project runtime. |
-| `run <path>`     | Compiles with the **project-locked JDK** and executes.       |
-| `run-jar`        | Runs the built JAR using the project's isolated JDK.         |
-| `remove <pkg>`   | Removes a dependency and cleans associated links.            |
-| `convert <type>` | Converts manifest formats (e.g., `json` to `xml`).           |
-| `cache-clear`    | Clears cached artifacts and metadata.                        |
-| `watch <path>`   | Starts a reactive file-watcher for live reloads.             |
-| `build`          | Packages the project into a standalone, portable Fat JAR.    |
+| Command          | Description                                                                                                                                                                                                                                             |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `init`           | Creates an interactive or default project layout.                                                                                                                                                                                                       |
+| `add <pkg>`      | Adds an artifact to the manifest and resolves dependencies.                                                                                                                                                                                             |
+| `sync`           | Downloads dependencies and synchronizes the project runtime.                                                                                                                                                                                            |
+| `run <path>`     | Compiles with the **project-locked JDK** and executes.                                                                                                                                                                                                  |
+| `run-jar`        | Runs the built JAR using the project's isolated JDK.                                                                                                                                                                                                    |
+| `remove <pkg>`   | Removes a dependency and cleans associated links.                                                                                                                                                                                                       |
+| `convert <type>` | Converts manifest formats (e.g., `json` to `xml`).                                                                                                                                                                                                      |
+| `cache-clear`    | Clears cached artifacts and metadata.                                                                                                                                                                                                                   |
+| `watch <path>`   | Starts a reactive, content-verified file-watcher. Unlike standard watchers that trigger on every file save, `jar-cart` uses SHA256 hashing to ensure re-compilation only occurs when meaningful code changes are detected, preventing redundant builds. |
+| `build`          | Packages the project into a standalone, portable Fat JAR.                                                                                                                                                                                               |
 
 ---
 
