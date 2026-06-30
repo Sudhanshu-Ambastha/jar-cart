@@ -1,3 +1,4 @@
+#!/bin/sh
 set -e
 
 OS="$(uname -s)"
@@ -10,26 +11,23 @@ case "$ARCH" in
 esac
 
 if [ "$OS" = "Linux" ]; then
-    PLATFORM="linux"
-    EXTENSION="tar.gz"
+    PLATFORM="linux"; EXTENSION="tar.gz"
 elif [ "$OS" = "Darwin" ]; then
-    PLATFORM="macos"
-    EXTENSION="tar.gz"
+    PLATFORM="macos"; EXTENSION="tar.gz"
 elif echo "$OS" | grep -qE "MINGW|MSYS|CYGWIN"; then
-    PLATFORM="windows"
-    EXTENSION="zip"
+    PLATFORM="windows"; EXTENSION="zip"
 else
     echo "❌ Unsupported OS: $OS"
     exit 1
 fi
 
 if [ -z "$VERSION" ]; then
-    echo "🔍 Fetching latest version tag from GitHub API..."
+    echo "🔍 Fetching latest version tag..."
     VERSION=$(curl -s "https://api.github.com/repos/Sudhanshu-Ambastha/jar-cart/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
     
     if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
-        echo "⚠️ Could not resolve latest version automatically. Falling back to default v0.0.1"
-        VERSION="v0.0.1"
+        echo "❌ Failed to resolve latest version. Please set the VERSION environment variable."
+        exit 1
     fi
 fi
 
@@ -37,7 +35,7 @@ FILE_NAME="jar-cart-${TARGET_ARCH}-${PLATFORM}.${EXTENSION}"
 URL="https://github.com/Sudhanshu-Ambastha/jar-cart/releases/download/${VERSION}/${FILE_NAME}"
 INSTALL_DIR="$HOME/.jar-cart/bin"
 
-echo "⚡ Downloading jar-cart $VERSION for $OS ($ARCH)..."
+echo "⚡ Downloading $FILE_NAME ($VERSION)..."
 mkdir -p "$INSTALL_DIR"
 
 if [ "$EXTENSION" = "tar.gz" ]; then
@@ -54,10 +52,10 @@ else
 fi
 
 echo "---"
-echo "✨ jar-cart successfully installed into $INSTALL_DIR"
+echo "✨ jar-cart $VERSION successfully installed!"
 if [ "$PLATFORM" = "windows" ]; then
-    echo "🚀 Make sure $INSTALL_DIR is in your system's Environment Variables path!"
+    echo "🚀 Make sure $INSTALL_DIR is in your PATH."
 else
-    echo "👉 Add this line to your ~/.bashrc or ~/.zshrc file:"
+    echo "👉 Add this to your shell config (~/.bashrc or ~/.zshrc):"
     echo "   export PATH=\"\$HOME/.jar-cart/bin:\$PATH\""
 fi

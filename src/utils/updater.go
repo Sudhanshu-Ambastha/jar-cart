@@ -2,11 +2,14 @@ package utils
 
 import (
 	"archive/zip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -64,7 +67,6 @@ func (pw *progressWriter) Write(p []byte) (int, error) {
 	if time.Since(pw.lastPrint) > 200*time.Millisecond {
 		pw.lastPrint = time.Now()
 		if pw.total > 0 {
-			// Using \r to overwrite the same line
 			fmt.Printf("\r📥 Downloading JAR: %.2f MB / %.2f MB (%.1f%%)", 
 				float64(pw.current)/(1024*1024), 
 				float64(pw.total)/(1024*1024), 
@@ -236,8 +238,9 @@ func unzipJdkArchive(src, dest string) error {
 }
 
 func SelfUpdate(currentVersion string) error {
-	fmt.Println("🔍 Checking GitHub for latest jar-cart CLI release...")
-	
+	logger := log.New(os.Stderr)
+	logger.Info("Checking GitHub for latest jar-cart CLI release...")
+
 	resp, err := http.Get("https://api.github.com/repos/Sudhanshu-Ambastha/jar-cart/releases/latest")
 	if err != nil {
 		return fmt.Errorf("failed to fetch live metadata: %v", err)
@@ -250,81 +253,89 @@ func SelfUpdate(currentVersion string) error {
 	}
 
 	if release.TagName == currentVersion {
-		fmt.Printf("✨ You are already on the absolute latest version (%s)!\n", currentVersion)
+		logger.Info("You are already on the absolute latest version", "version", currentVersion)
 		return nil
 	}
 
-	fmt.Printf("🔄 New version found: %s (Current: %s). Preparing asset downloads...\n", release.TagName, currentVersion)
+	logger.Info("New version found, preparing asset downloads", "latest", release.TagName, "current", currentVersion)
 
-	var platform, ext string
-	switch runtime.GOOS {
-	case "windows":
-		platform = "windows"
-		ext = "zip"
-	case "darwin":
-		platform = "macos"
-		ext = "tar.gz"
-	default:
-		platform = "linux"
-		ext = "tar.gz"
+	platform, ext := "linux", "tar.gz"
+	if runtime.GOOS == "windows" {
+		platform, ext = "windows", "zip"
+	} else if runtime.GOOS == "darwin" {
+		platform, ext = "macos", "tar.gz"
 	}
 
 	arch := "x86_64"
-	if runtime.GOARCH == "arm64" || runtime.GOARCH == "amd64" {
-		if runtime.GOARCH == "arm64" {
-			arch = "aarch64"
-		}
+	if runtime.GOARCH == "arm64" {
+		arch = "aarch64"
 	}
 
 	fileName := fmt.Sprintf("jar-cart-%s-%s.%s", arch, platform, ext)
 	downloadURL := fmt.Sprintf("https://github.com/Sudhanshu-Ambastha/jar-cart/releases/download/%s/%s", release.TagName, fileName)
+	checksumURL := fmt.Sprintf("https://github.com/Sudhanshu-Ambastha/jar-cart/releases/download/%s/checksums.txt", release.TagName)
 
 	execPath, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("cannot locate running binary workspace path: %v", err)
+		return fmt.Errorf("cannot locate running binary path: %v", err)
 	}
-
 	tmpFile := execPath + ".tmp"
 	oldFile := execPath + ".old"
 
-	fmt.Println("⚡ Streaming latest binary distribution package payload...")
+	respBin, err := http.Get(downloadURL)
+	if err != nil {
+		return err
+	}
+	defer respBin.Body.Close()
+
 	out, err := os.Create(tmpFile)
 	if err != nil {
-		return fmt.Errorf("failed to create temporary update space: %v", err)
+		return err
 	}
-	defer out.Close()
-
-	downloadResp, err := http.Get(downloadURL)
-	if err != nil {
-		return fmt.Errorf("failed to pull down update pack: %v", err)
-	}
-	defer downloadResp.Body.Close()
-
-	if downloadResp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download endpoint refused handshake with code: %s", downloadResp.Status)
-	}
-
-	_, err = io.Copy(out, downloadResp.Body)
-	if err != nil {
-		return fmt.Errorf("interrupted download transfer: %v", err)
-	}
+	_, _ = io.Copy(out, respBin.Body)
 	out.Close()
-	
-	_ = os.Remove(oldFile) 
-	if err := os.Rename(execPath, oldFile); err != nil {
-		return fmt.Errorf("failed to cycle existing binary file handle: %v", err)
+
+	logger.Info("Verifying binary integrity...")
+	respSum, err := http.Get(checksumURL)
+	if err != nil {
+		return fmt.Errorf("could not fetch checksums: %v", err)
+	}
+	defer respSum.Body.Close()
+
+	sumContent, err := io.ReadAll(respSum.Body)
+	if err != nil {
+		return err
 	}
 
-	if err := os.Rename(tmpFile, execPath); err != nil {
-		_ = os.Rename(oldFile, execPath)
-		return fmt.Errorf("failed to lock down update replacement binary: %v", err)
+	f, err := os.Open(tmpFile)
+	if err != nil {
+		return err
+	}
+	h := sha256.New()
+	_, _ = io.Copy(h, f)
+	f.Close()
+	computedHash := hex.EncodeToString(h.Sum(nil))
+
+	if !strings.Contains(string(sumContent), computedHash) {
+		_ = os.Remove(tmpFile)
+		return fmt.Errorf("security alert: checksum mismatch! binary may be tampered")
 	}
 
-	if runtime.GOOS != "windows" {
+	if runtime.GOOS == "windows" {
+		_ = os.Rename(execPath, oldFile)
+		err = os.Rename(tmpFile, execPath)
+		if err != nil {
+			logger.Warn("Binary in use, queuing swap for next execution")
+			cmd := fmt.Sprintf("timeout /t 1 && move /y \"%s\" \"%s\"", tmpFile, execPath)
+			exec.Command("cmd", "/c", cmd).Start()
+		}
+	} else {
+		_ = os.Rename(execPath, oldFile)
+		_ = os.Rename(tmpFile, execPath)
 		_ = os.Chmod(execPath, 0755)
 	}
 
-	fmt.Printf("🎉 Successfully updated jar-cart to %s! Run it again to verify.\n", release.TagName)
+	logger.Info("Successfully updated jar-cart", "version", release.TagName)
 	return nil
 }
 

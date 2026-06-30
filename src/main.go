@@ -42,7 +42,12 @@ func main() {
 	logger := log.New(os.Stderr)
 	logger.SetLevel(log.InfoLevel)
 
-	utils.AutoCheckUpdate("v0.0.5")
+	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Println("jar-cart v0.1.0")
+		return
+	}
+
+	utils.AutoCheckUpdate("v0.1.0")
 
 	if len(os.Args) < 2 {
 		printHelp()
@@ -81,6 +86,11 @@ func main() {
 	}
 
 	switch command {
+	case "self-update":
+        if err := utils.SelfUpdate("v0.1.0"); err != nil {
+            logger.Error("Self-update failed", "error", err)
+        }
+
 	case "init":
 		projectName := "."
 		if len(filteredArgs) > 0 {
