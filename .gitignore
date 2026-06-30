@@ -11,3 +11,4 @@ test/
 *.db
 .jar-cart/bin/
 *.tmp
+*.syso

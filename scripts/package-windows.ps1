@@ -7,26 +7,17 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# 1. Handle Conditional Code Signing
 if ($CertBase64 -and $CertPassword) {
-    Write-Host "🎫 Decoding code signing certificate..."
     $pfxPath = ".\developer.pfx"
-    
-    # Securely write the binary bytes for the certificate
     [System.IO.File]::WriteAllBytes($pfxPath, [System.Convert]::FromBase64String($CertBase64))
-    
-    Write-Host "🔏 Signing executable binary asset..."
     $securePassword = ConvertTo-SecureString $CertPassword -AsPlainText -Force
     $certObject = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfxPath, $securePassword)
-    
-    $status = Set-AuthenticodeSignature -FilePath $BinaryName -Certificate $certObject -HashAlgorithm "SHA256"
+    Set-AuthenticodeSignature -FilePath $BinaryName -Certificate $certObject -HashAlgorithm "SHA256"
     Remove-Item $pfxPath -Force
-    
-    Write-Host "✨ Signing status: $($status.Status)"
-} else {
-    Write-Host "⚠️ Missing release secrets. Binary remains unsigned."
 }
 
-# 2. Package into Production ZIP Artifact
-Write-Host "📦 Compressing $BinaryName into $AssetName..."
-Compress-Archive -Path $BinaryName -DestinationPath $AssetName -Force
+$hash = Get-FileHash -Path $BinaryName -Algorithm SHA256
+$hash.Hash | Out-File "checksums.txt" -Encoding utf8
+
+Compress-Archive -Path $BinaryName, "checksums.txt" -DestinationPath $AssetName -Force
+Remove-Item "checksums.txt"
