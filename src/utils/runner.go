@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/Sudhanshu-Ambastha/jar-cart/src/models"
+	"github.com/charmbracelet/log"
 )
 
 func FindJavaFiles(dir string) ([]string, error) {
@@ -36,13 +37,17 @@ func getInstalledJavaVersion(binPath string) (int, error) {
 
 func ResolveMainClass(filePath string) string {
     content, err := os.ReadFile(filePath)
-    if err == nil {
-        lines := strings.Split(string(content), "\n")
-        for _, line := range lines {
-            line = strings.TrimSpace(line)
-            if strings.HasPrefix(line, "package ") {
-                pkg := strings.TrimPrefix(line, "package ")
-                pkg = strings.TrimSuffix(pkg, ";")
+    if err != nil {
+        return strings.TrimSuffix(filepath.Base(filePath), ".java")
+    }
+
+    lines := strings.Split(string(content), "\n")
+    for _, line := range lines {
+        line = strings.TrimSpace(line)
+        if strings.HasPrefix(line, "package ") {
+            parts := strings.Fields(line)
+            if len(parts) >= 2 {
+                pkg := strings.TrimSuffix(parts[1], ";")
                 className := strings.TrimSuffix(filepath.Base(filePath), ".java")
                 return pkg + "." + className
             }
@@ -54,7 +59,7 @@ func ResolveMainClass(filePath string) string {
 func RunProject(input string) {
 	javaVersion, javacPath, javaPath, err := GetJDKPaths()
 	if err != nil {
-		fmt.Printf("❌ %v\n", err)
+		log.Error("JDK configuration error", "error", err)
 		return
 	}
 
@@ -64,49 +69,41 @@ func RunProject(input string) {
 
 	absLib, _ := filepath.Abs("lib")
 	classpath := binDir + string(os.PathListSeparator) + filepath.Join(absLib, "*")
-	searchPath := input
-	var mainFileToResolve string
 
-	info, err := os.Stat(input)
-	if err == nil && info.IsDir() {
-		javaFiles, _ := FindJavaFiles(input)
-		if len(javaFiles) == 0 {
-			fmt.Printf("❌ Error: No Java source files detected in '%s/'.\n", input)
-			return
-		}
-		mainFileToResolve = javaFiles[0] 
-	} else {
-		searchPath = filepath.Dir(input)
-		mainFileToResolve = input
-	}
-
-	javaFiles, err := FindJavaFiles(searchPath)
+	cwd, _ := os.Getwd()
+	javaFiles, err := FindJavaFiles(cwd)
 	if err != nil || len(javaFiles) == 0 {
-		fmt.Printf("❌ Error: No Java source files detected.\n")
+		log.Error("No Java source files detected")
 		return
 	}
 
 	argfilePath := filepath.Join(".jar-cart", "sources.txt")
 	argfile, _ := os.Create(argfilePath)
 	for _, file := range javaFiles {
-		_, _ = argfile.WriteString(filepath.Clean(file) + "\n")
+		relPath, _ := filepath.Rel(cwd, file)
+		argfile.WriteString(relPath + "\n")
 	}
 	argfile.Close()
 	defer os.Remove(argfilePath)
 
-	fmt.Printf("⚡ Compiling with JDK %s...\n", javaVersion)
-	javacCmd := exec.Command(javacPath, "-cp", classpath, "-d", binDir, "@"+argfilePath)
+	log.Info("Compiling with JDK", "version", javaVersion)
+	javacCmd := exec.Command(javacPath, "-cp", classpath, "-sourcepath", cwd, "-d", binDir, "@"+argfilePath)
 	javacCmd.Stdout = os.Stdout
 	javacCmd.Stderr = os.Stderr
 	
 	if err := javacCmd.Run(); err != nil {
-		fmt.Println("❌ Compilation failed.")
+		log.Error("Compilation failed")
 		return
 	}
 
-	mainClass := ResolveMainClass(mainFileToResolve)
-	
-	fmt.Printf("🚀 Booting execution engine (JDK %s): %s\n\n", javaVersion, mainClass)
+	targetFile, err := resolveTargetFile(cwd, input, javaFiles)
+	if err != nil {
+		log.Error("Could not resolve target", "input", input, "error", err)
+		return
+	}
+	mainClass := ResolveMainClass(targetFile)
+
+	log.Info("Booting execution engine", "jdk", javaVersion, "class", mainClass)
 	
 	javaCmd := exec.Command(javaPath, "-cp", classpath, mainClass)
 	javaCmd.Stdin = os.Stdin
@@ -114,29 +111,84 @@ func RunProject(input string) {
 	javaCmd.Stderr = os.Stderr
 	
 	if err := javaCmd.Run(); err != nil {
-		fmt.Printf("❌ Execution failed: %v\n", err)
+		log.Error("Execution failed", "error", err)
 	}
+}
+
+func resolveTargetFile(cwd, input string, javaFiles []string) (string, error) {
+	cleanInput := strings.TrimSuffix(input, ".java")
+
+	candidate := input
+	if !strings.HasSuffix(candidate, ".java") {
+		candidate += ".java"
+	}
+	if absCandidate, err := filepath.Abs(candidate); err == nil {
+		for _, f := range javaFiles {
+			if f == absCandidate {
+				return f, nil
+			}
+		}
+	}
+
+	for _, f := range javaFiles {
+		base := strings.TrimSuffix(filepath.Base(f), ".java")
+		if base == cleanInput {
+			return f, nil
+		}
+	}
+
+	dirCandidate := filepath.Join(cwd, input)
+	if info, err := os.Stat(dirCandidate); err == nil && info.IsDir() {
+		for _, f := range javaFiles {
+			if strings.HasPrefix(f, dirCandidate) {
+				if hasMainMethod(f) {
+					return f, nil
+				}
+			}
+		}
+	}
+
+	var mains []string
+	for _, f := range javaFiles {
+		if hasMainMethod(f) {
+			mains = append(mains, f)
+		}
+	}
+	if len(mains) == 1 {
+		return mains[0], nil
+	}
+
+	return "", fmt.Errorf("no matching Java file found for '%s'", input)
+}
+
+func hasMainMethod(filePath string) bool {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(content), "public static void main")
 }
 
 func RunScript(scriptName string, manifest *models.Manifest) error {
 	if pre, ok := manifest.Scripts["pre"+scriptName]; ok {
-		fmt.Printf("🔍 Running pre-%s...\n", scriptName)
+		log.Info("Running pre-script", "script", scriptName)
 		if err := executeShellCommand(pre, scriptName); err != nil {
 			return err
 		}
 	}
 
 	if main, ok := manifest.Scripts[scriptName]; ok {
-		fmt.Printf("⚡ Running %s...\n", scriptName)
+		log.Info("Running script", "script", scriptName)
 		if err := executeShellCommand(main, scriptName); err != nil {
 			return err
 		}
 	} else {
+		log.Error("Script not found", "script", scriptName)
 		return fmt.Errorf("script '%s' not found in manifest", scriptName)
 	}
 
 	if post, ok := manifest.Scripts["post"+scriptName]; ok {
-		fmt.Printf("🔍 Running post-%s...\n", scriptName)
+		log.Info("Running post-script", "script", scriptName)
 		return executeShellCommand(post, scriptName)
 	}
 	return nil

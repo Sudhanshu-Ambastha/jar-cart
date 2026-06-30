@@ -20,6 +20,7 @@ type Manifest struct {
 	Project      string            `json:"project" xml:"project"`
 	JavaVersion  string            `json:"java_version" xml:"java_version"`
 	Strategy     string            `json:"strategy" xml:"strategy"`
+	ResolveTransitives bool        `json:"resolve_transitives" xml:"resolve_transitives"`
 	Scripts      map[string]string `json:"scripts,omitempty" xml:"-"`
 	Dependencies []Dependency      `json:"dependencies" xml:"dependencies>dependency"`
 	XMLScripts   []Script          `json:"-" xml:"scripts>script"`

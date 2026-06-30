@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/charmbracelet/log"
 )
 
 type GitHubRelease struct {
@@ -43,8 +45,8 @@ func AutoCheckUpdate(currentVersion string) {
 		var release GitHubRelease
 		if err := json.NewDecoder(resp.Body).Decode(&release); err == nil {
 			if release.TagName != currentVersion {
-				fmt.Printf("\n✨ [jar-cart] A new version is available: %s (Current: %s)\n", release.TagName, currentVersion)
-				fmt.Println("👉 Run 'jar-cart self-update' to pull the latest performance optimizations instantly!\n")
+				log.Info("A new version is available", "latest", release.TagName, "current", currentVersion)
+				log.Info("Run 'jar-cart self-update' to pull the latest optimizations")
 			}
 		}
 	}()
@@ -62,12 +64,13 @@ func (pw *progressWriter) Write(p []byte) (int, error) {
 	if time.Since(pw.lastPrint) > 200*time.Millisecond {
 		pw.lastPrint = time.Now()
 		if pw.total > 0 {
-			fmt.Printf("\r📥 Downloading Java: %.2f MB / %.2f MB (%.1f%%)", 
+			// Using \r to overwrite the same line
+			fmt.Printf("\r📥 Downloading JAR: %.2f MB / %.2f MB (%.1f%%)", 
 				float64(pw.current)/(1024*1024), 
 				float64(pw.total)/(1024*1024), 
 				(float64(pw.current)/float64(pw.total))*100)
 		} else {
-			fmt.Printf("\r📥 Downloading Java: %.2f MB...", float64(pw.current)/(1024*1024))
+			fmt.Printf("\r📥 Downloading JAR: %.2f MB...", float64(pw.current)/(1024*1024))
 		}
 	}
 	return n, nil

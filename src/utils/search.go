@@ -17,6 +17,7 @@ import (
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 	"github.com/Sudhanshu-Ambastha/jar-cart/src/ui/components"
+	"github.com/charmbracelet/log"
 )
 
 type SearchResult struct {
@@ -171,32 +172,36 @@ func ScanLocalCache(query string) []string {
 
 func GetSearchSuggestions(query string) []SearchResult {
 	apiURL := fmt.Sprintf("https://search.maven.org/solrsearch/select?q=%s&rows=20&wt=json", url.QueryEscape(query))
+	
 	transport := &http.Transport{
 		DialContext: (&net.Dialer{
-			Timeout:   10 * time.Second, 
+			Timeout:   10 * time.Second,
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
-		ResponseHeaderTimeout: 15 * time.Second, 
+		ResponseHeaderTimeout: 15 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 	}
 
 	client := &http.Client{
-		Timeout:   30 * time.Second, 
+		Timeout:   30 * time.Second,
 		Transport: transport,
 	}
 
 	resp, err := client.Get(apiURL)
 	if err != nil {
+		log.Error("Failed to reach Maven Central API", "query", query, "error", err)
 		return nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		log.Warn("Maven Central API returned non-200 status", "status", resp.Status)
 		return nil
 	}
 
 	var data MavenResponse
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		log.Error("Failed to parse JSON response from Maven", "error", err)
 		return nil
 	}
 
@@ -208,6 +213,8 @@ func GetSearchSuggestions(query string) []SearchResult {
 			LatestVersion: doc.LatestVersion,
 		})
 	}
+	
+	log.Debug("Search successful", "query", query, "results_found", len(results))
 	return results
 }
 
@@ -217,6 +224,7 @@ func GetLatestVersionFromMaven(group, lib string) string {
 
     resp, err := http.Get(url)
     if err != nil || resp.StatusCode != http.StatusOK {
+        log.Debug("Failed to fetch metadata", "group", group, "lib", lib)
         return ""
     }
     defer resp.Body.Close()
@@ -239,12 +247,12 @@ func SearchMavenCentral(query string) {
 	p := tea.NewProgram(m)
 	finalModel, err := p.Run()
 	if err != nil {
-		fmt.Printf("❌ TUI Error: %v\n", err)
-		os.Exit(1)
+		log.Fatal("TUI failed to initialize", "error", err)
 	}
 
 	m = finalModel.(model)
-	fmt.Printf("DEBUG: Search complete. Found %d results for '%s'\n", len(m.results), query)
+	log.Debug("Search operation complete", "results_count", len(m.results), "query", query)
+
 	if len(m.results) > 0 {
         columns := []table.Column{
             {Title: "Coordinate (Group:Artifact)", Width: 55},
@@ -259,6 +267,6 @@ func SearchMavenCentral(query string) {
         t := components.NewDependencyTable(columns, rows)
         fmt.Println(t.View())
     } else {
-        fmt.Println("ℹ️ No results found. (Maven Central may be rate-limiting. Try again in a moment.)")
+        log.Warn("No results found. Maven Central may be rate-limiting.")
     }
 }

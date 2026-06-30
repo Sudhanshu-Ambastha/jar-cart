@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/charmbracelet/log"
 )
 
 func FileExists(filename string) bool {
@@ -31,7 +33,7 @@ func DetectProjectStrategy() string {
 
 func RunBuild() error {
 	strategy := DetectProjectStrategy()
-	fmt.Printf("🏗️  Building project using strategy: \033[36m%s\033[0m\n", strategy)
+	log.Info("Building project", "strategy", strategy)
 
 	switch strategy {
 	case "maven":
@@ -55,7 +57,7 @@ func performManualBuild() error {
 		jarPath += ".exe"
 	}
 
-	fmt.Println("⚡ Compiling source tree with managed JDK...")
+	log.Info("Compiling source tree with managed JDK")
 	_ = os.MkdirAll("bin", 0755)
 
 	var files []string
@@ -80,8 +82,8 @@ func performManualBuild() error {
 	if err != nil {
 		return err
 	}
-	
-	fmt.Println("📜 Generating manifest...")
+
+	log.Info("Generating manifest")
 	_ = os.MkdirAll("dist", 0755)
 	manifestPath := "dist/manifest.txt"
 	manifestContent := "Manifest-Version: 1.0\nMain-Class: App\n"
@@ -90,7 +92,7 @@ func performManualBuild() error {
 		return fmt.Errorf("failed to create manifest: %w", err)
 	}
 
-	fmt.Println("📦 Packaging JAR with managed JDK...")
+	log.Info("Packaging JAR with managed JDK")
 	return runCommand(jarPath, "cvfm", "dist/app.jar", manifestPath, "-C", "bin", ".")
 }
 
@@ -138,7 +140,7 @@ func RunJar(jarPath string, mainClass string) error {
 	if mainClass == "" {
 		detected, err := getMainClassFromJar(jarPath)
 		if err != nil {
-			fmt.Printf("⚠️  Could not detect main class, falling back to App: %v\n", err)
+			log.Warn("Could not detect main class, falling back to App", "error", err)
 			mainClass = "App"
 		} else {
 			mainClass = detected
@@ -156,6 +158,6 @@ func RunJar(jarPath string, mainClass string) error {
 		mainClass,
 	}
 
-	fmt.Printf("🚀 Launching with JDK %s [Main: %s]\n", version, mainClass)
+	log.Info("Launching JAR", "jdk", version, "main", mainClass)
 	return runCommand(javaPath, args...)
 }

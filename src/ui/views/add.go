@@ -42,27 +42,28 @@ func (m AddModel) Init() tea.Cmd {
 }
 
 func (m AddModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+
 	switch msg := msg.(type) {
-	case tea.KeyPressMsg:
+	case tea.KeyMsg:
 		if msg.String() == "q" || msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
 
 	case spinner.TickMsg:
-		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 	}
 
 	switch m.state {
 	case stateSelecting:
-		var cmd tea.Cmd
 		m.table, cmd = m.table.Update(msg)
 		return m, cmd
+
 	case stateDownloading:
-		var cmd tea.Cmd
-		m.progress, cmd = m.progress.Update(msg)
-		return m, cmd
+		newModel, newCmd := m.progress.Update(msg)
+		m.progress = newModel.(progress.Model)
+		return m, newCmd
 	}
 	return m, nil
 }

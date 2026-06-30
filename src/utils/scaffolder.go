@@ -111,6 +111,7 @@ public class App {
 			Project:     filepath.Base(targetDir),
 			JavaVersion: javaVersion,
 			Strategy:    "Include All Dependencies",
+			ResolveTransitives: true,
 			Scripts: map[string]string{
 				"hello":    "echo 'Hello from jar-cart!'",
 				"pretest":  "echo 'Compiling tests...'",

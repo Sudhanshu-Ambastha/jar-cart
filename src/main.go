@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/Sudhanshu-Ambastha/jar-cart/src/models"
-	"github.com/Sudhanshu-Ambastha/jar-cart/src/ui"
 	"github.com/Sudhanshu-Ambastha/jar-cart/src/ui/components"
 	"github.com/Sudhanshu-Ambastha/jar-cart/src/utils"
+	"github.com/charmbracelet/log"
 )
 
 const (
@@ -39,6 +39,9 @@ func isPresentInLib(query string) bool {
 }
 
 func main() {
+	logger := log.New(os.Stderr)
+	logger.SetLevel(log.InfoLevel)
+
 	utils.AutoCheckUpdate("v0.0.5")
 
 	if len(os.Args) < 2 {
@@ -78,238 +81,214 @@ func main() {
 	}
 
 	switch command {
-		case "init":
-			projectName := "."
-			if len(filteredArgs) > 0 {
-				projectName = filteredArgs[0]
-			}
+	case "init":
+		projectName := "."
+		if len(filteredArgs) > 0 {
+			projectName = filteredArgs[0]
+		}
+		manifestFormat, javaVersion := utils.InteractiveInit("25")
+		manifestType := manifestFormat
+		if useXML { manifestType = "xml" }
 
-			manifestFormat, javaVersion := utils.InteractiveInit("25") 
-			
-			manifestType := manifestFormat
-			if useXML { 
-				manifestType = "xml" 
-			}
+		targetDir, err := utils.HandleInit(projectName, manifestType)
+		if err != nil {
+			logger.Fatal("Failed to initialize", "error", err)
+		}
 
-			targetDir, err := utils.HandleInit(projectName, manifestType)
-			if err != nil {
-				fmt.Printf("❌ Failed: %v\n", err)
-				os.Exit(1)
-			}
+		logger.Info("Scaffolding project", "path", targetDir, "format", manifestType)
+		if err := utils.ExecuteScaffold(targetDir, projectName, "Vanilla", "no-build", "Java", javaVersion, manifestType); err != nil {
+			logger.Error("Scaffold failed", "error", err)
+		} else {
+			_ = utils.GenerateLockFile(targetDir, []models.Dependency{})
+			logger.Info("Project ready!")
+		}
 
-			fmt.Println(ui.TitleStyle.Render("⚡ Scaffolding " + targetDir + " (" + manifestType + " mode)..."))
-			
-			if err := utils.ExecuteScaffold(targetDir, projectName, "Vanilla", "no-build", "Java", javaVersion, manifestType); err != nil {
-				fmt.Printf("❌ Scaffold failed: %v\n", err)
-			} else {
-				_ = utils.GenerateLockFile(targetDir, []models.Dependency{})
-				fmt.Println(ui.SuccessStyle.Render("\n✨ Project ready! 🛒"))
-			}
-		case "cache-clear":
-			fmt.Println("🧹 Clearing all cached blueprints and registry data...")
-			if err := utils.CleanCache(); err != nil {
-				fmt.Printf("❌ Failed to clear cache: %v\n", err)
-			} else {
-				fmt.Println("✅ Cache cleared. Next run will fetch fresh metadata from the web.")
-			}
+	case "cache-clear":
+		logger.Info("Clearing cache...")
+		if err := utils.CleanCache(); err != nil {
+			logger.Error("Cache clear failed", "error", err)
+		} else {
+			logger.Info("Cache cleared successfully.")
+		}
 
-		case "search":
-			if len(filteredArgs) < 1 {
-				fmt.Println("❌ Error: 'search' requires a query string.")
-				os.Exit(1)
-			}
-			utils.SearchMavenCentral(filteredArgs[0])
+	case "search":
+		if len(filteredArgs) < 1 {
+			logger.Error("Search requires a query string.")
+			os.Exit(1)
+		}
+		utils.SearchMavenCentral(filteredArgs[0])
 
-		case "sync":
-			fmt.Printf("📦 Synchronizing via: %s (Frozen: %v)\n", manifestFile, frozen)
-			
-			manifest, err := utils.LoadManifest(manifestFile)
-			if err != nil {
-				fmt.Printf("❌ Manifest loading failure: %v\n", err)
-				os.Exit(1)
-			}
+	case "sync":
+		logger.Info("Synchronizing dependencies", "manifest", manifestFile, "frozen", frozen)
+		manifest, err := utils.LoadManifest(manifestFile)
+		if err != nil {
+			logger.Fatal("Manifest load failure", "error", err)
+		}
 
-			javaVersion := manifest.JavaVersion
-			if javaVersion == "" {
-				javaVersion = "25"
-			}
-			fmt.Printf("🔍 Using Java version: %s\n", javaVersion)
+		javaVersion := manifest.JavaVersion
+		if javaVersion == "" { javaVersion = "25" }
+		
+		if err := utils.EnsureJavaVersion(javaVersion); err != nil {
+			logger.Fatal("Java provisioning failed", "error", err)
+		}
 
-			if err := utils.EnsureJavaVersion(javaVersion); err != nil {
-				fmt.Printf("❌ Failed to ensure Java %s: %v\n", javaVersion, err)
-				os.Exit(1)
-			}
+		lockEntries, err := utils.ResolveParallelDependencies(".", manifest.Dependencies, true)
+		if err != nil {
+			logger.Warn("Sync completed with some errors", "error", err)
+		}
 
-			lockEntries, err := utils.ResolveParallelDependencies(".", manifest.Dependencies)
-			if err != nil {
-				fmt.Printf("❌ Workspace synchronization loop failed: %v\n", err)
-				os.Exit(1)
-			}
+		if err := utils.CleanupLibDir(".", lockEntries); err != nil {
+			logger.Error("Cleanup failed", "error", err)
+		}
+		logger.Info("Dependencies synced successfully.")
 
-			err = utils.CleanupLibDir(".", lockEntries)
-			if err != nil {
-				fmt.Printf("❌ Cleanup failed: %v\n", err)
-				os.Exit(1)
-			}
+	case "add":
+		if len(filteredArgs) < 1 {
+			logger.Error("Add requires a package name.")
+			os.Exit(1)
+		}
 
-			fmt.Println("✨ Dependencies synced and linked perfectly!")
+		for _, query := range filteredArgs {
+			var g, a, v string
+			matches := utils.ScanLocalCache(query)
 
-		case "add":
-			if len(filteredArgs) < 1 {
-				fmt.Println("❌ Error: 'add' requires a package name.")
-				os.Exit(1)
-			}
-
-			for _, query := range filteredArgs {
-				var g, a, v string
-				matches := utils.ScanLocalCache(query)
-
-				if len(matches) > 0 {
-					if len(matches) > 1 {
-						options := make(map[string]string)
-						for _, path := range matches {
-							display := strings.ReplaceAll(path, string(os.PathSeparator), ":")
-							options[display] = path
-						}
-
-						selectedPath, ok := utils.InteractiveSelection(options)
-						if !ok { continue }
-
-						dir := filepath.Dir(filepath.Clean(selectedPath))
-						filename := filepath.Base(filepath.Clean(selectedPath))
-						g = strings.ReplaceAll(dir, string(os.PathSeparator), ".")
-						base := strings.TrimSuffix(filename, ".jar")
-						lastDash := strings.LastIndex(base, "-")
-						if lastDash != -1 {
-							a = base[:lastDash]
-							v = base[lastDash+1:]
-						}
-					} else {
-						path := matches[0]
-						dir := filepath.Dir(filepath.Clean(path))
-						filename := filepath.Base(filepath.Clean(path))
-						g = strings.ReplaceAll(dir, string(os.PathSeparator), ".")
-						base := strings.TrimSuffix(filename, ".jar")
-						lastDash := strings.LastIndex(base, "-")
-						if lastDash != -1 {
-							a = base[:lastDash]
-							v = base[lastDash+1:]
-						}
-						fmt.Printf("🔍 Found in cache: %s:%s:%s\n", g, a, v)
-					}
-				} else {
-					if !utils.IsOnline() {
-						fmt.Printf("❌ '%s' not found in cache and network is offline.\n", query)
-						continue
+			if len(matches) > 0 {
+				if len(matches) > 1 {
+					options := make(map[string]string)
+					for _, path := range matches {
+						display := strings.ReplaceAll(path, string(os.PathSeparator), ":")
+						options[display] = path
 					}
 
-					suggestions := utils.GetSearchSuggestions(query)
-					if len(suggestions) == 0 {
-						fmt.Printf("❌ No results found for '%s' in cache or online.\n", query)
-						continue
-					}
-
-					onlineOptions := make(map[string]string)
-					for _, res := range suggestions {
-						display := fmt.Sprintf("%s:%s:%s", res.G, res.A, res.LatestVersion)
-						onlineOptions[display] = display
-					}
-
-					targetCoord, ok := utils.InteractiveSelection(onlineOptions)
+					selectedPath, ok := utils.InteractiveSelection(options)
 					if !ok { continue }
 
-					parts := strings.Split(targetCoord, ":")
-					if len(parts) == 3 {
-						g, a, v = parts[0], parts[1], parts[2]
-					} else {
-						continue
+					dir := filepath.Dir(filepath.Clean(selectedPath))
+					filename := filepath.Base(filepath.Clean(selectedPath))
+					g = strings.ReplaceAll(dir, string(os.PathSeparator), ".")
+					base := strings.TrimSuffix(filename, ".jar")
+					lastDash := strings.LastIndex(base, "-")
+					if lastDash != -1 {
+						a = base[:lastDash]
+						v = base[lastDash+1:]
 					}
-				}
-
-				target := fmt.Sprintf("%s:%s:%s", g, a, v)
-				fmt.Printf("➕ Processing: %s\n", target)
-
-				if err := utils.AddDependency(manifestFile, target, false, "lib"); err != nil {
-					fmt.Printf("⚠️ Sync failed: %v\n", err)
 				} else {
-					fmt.Printf("✅ %s processed successfully!\n", target)
-				}
-			}
-		case "remove", "rm":
-			if len(filteredArgs) < 1 {
-				fmt.Println("❌ Error: 'remove' requires target coordinates.")
-				os.Exit(1)
-			}
-			if err := utils.RemoveDependency(manifestFile, filteredArgs[0], "lib"); err != nil {
-				fmt.Printf("❌ Dependency removal failure: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Println("✨ Dependency removed and lockfile updated.")
-
-		case "convert":
-			if len(filteredArgs) < 1 {
-				fmt.Println("❌ Error: Target transformation variant required (json|xml).")
-				os.Exit(1)
-			}
-			if err := utils.ConvertManifest(manifestFile, filteredArgs[0]); err != nil {
-				fmt.Printf("❌ Context conversion breakdown: %v\n", err)
-				os.Exit(1)
-			}
-
-		case "run":
-			if len(filteredArgs) < 1 {
-				fmt.Println("❌ Error: 'run' requires a target (file or script).")
-				return
-			}
-
-			target := filteredArgs[0]
-			manifest, err := utils.LoadManifest(manifestFile)
-			
-			if err == nil && manifest.Scripts != nil {
-				if _, ok := manifest.Scripts[target]; ok {
-					fmt.Printf("🔍 Detected script: %s\n", target)
-					err := utils.RunScript(target, manifest)
-					if err != nil { 
-						fmt.Printf("❌ Script failed: %v\n", err) 
+					path := matches[0]
+					dir := filepath.Dir(filepath.Clean(path))
+					filename := filepath.Base(filepath.Clean(path))
+					g = strings.ReplaceAll(dir, string(os.PathSeparator), ".")
+					base := strings.TrimSuffix(filename, ".jar")
+					lastDash := strings.LastIndex(base, "-")
+					if lastDash != -1 {
+						a = base[:lastDash]
+						v = base[lastDash+1:]
 					}
-					return 
+					logger.Info("Found in cache", "package", fmt.Sprintf("%s:%s:%s", g, a, v))
+				}
+			} else {
+				if !utils.IsOnline() {
+					logger.Error("Network is offline and package not in cache", "query", query)
+					continue
+				}
+
+				suggestions := utils.GetSearchSuggestions(query)
+				if len(suggestions) == 0 {
+					logger.Warn("No results found", "query", query)
+					continue
+				}
+
+				onlineOptions := make(map[string]string)
+				for _, res := range suggestions {
+					display := fmt.Sprintf("%s:%s:%s", res.G, res.A, res.LatestVersion)
+					onlineOptions[display] = display
+				}
+
+				targetCoord, ok := utils.InteractiveSelection(onlineOptions)
+				if !ok { continue }
+
+				parts := strings.Split(targetCoord, ":")
+				if len(parts) == 3 {
+					g, a, v = parts[0], parts[1], parts[2]
+				} else {
+					continue
 				}
 			}
-			
-			fmt.Printf("🔍 Detected Java file: %s\n", target)
-			utils.RunProject(target)
-		
-		case "watch":
-			if len(filteredArgs) < 1 {
-				utils.WatchAndRun("src")
+
+			target := fmt.Sprintf("%s:%s:%s", g, a, v)
+			logger.Info("Processing dependency", "target", target)
+
+			if err := utils.AddDependency(manifestFile, target, false, "lib"); err != nil {
+				logger.Error("Sync failed", "target", target, "error", err)
 			} else {
-				utils.WatchAndRun(filteredArgs[0])
+				logger.Info("Processed successfully", "target", target)
 			}
-		
-		case "build":
-			if err := utils.RunBuild(); err != nil {
-				fmt.Printf("❌ Build failed: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Println("✨ Build successful!")
-		
-		case "run-jar":
-			mainClass := ""
-			if len(filteredArgs) > 0 {
-				mainClass = filteredArgs[0]
-			}
-			
-			if err := utils.RunJar("dist/app.jar", mainClass); err != nil {
-				fmt.Printf("❌ Execution failed: %v\n", err)
-				os.Exit(1)
-			}
+		}
 
-		case "help", "-h", "--help":
-			printHelp()
-
-		default:
-			fmt.Printf("❌ Unknown command: '%s'\n", command)
-			printHelp()
+	case "remove", "rm":
+		if len(filteredArgs) < 1 {
+			logger.Error("Remove requires target coordinates (group:lib).")
 			os.Exit(1)
+		}
+		if err := utils.RemoveDependency(manifestFile, filteredArgs[0], "lib"); err != nil {
+			logger.Error("Removal failed", "error", err)
+		} else {
+			logger.Info("Dependency removed.")
+		}
+
+	case "run":
+		if len(filteredArgs) < 1 {
+			logger.Error("Run requires a target.")
+			return
+		}
+		target := filteredArgs[0]
+		
+		manifest, err := utils.LoadManifest(manifestFile)
+		if err == nil && manifest.Scripts != nil {
+			if _, ok := manifest.Scripts[target]; ok {
+				logger.Info("Executing script", "script", target)
+				if err := utils.RunScript(target, manifest); err != nil {
+					logger.Error("Script execution failed", "error", err)
+				}
+				return 
+			}
+		}
+		
+		logger.Info("Executing target", "target", target)
+		utils.RunProject(target)
+
+	case "watch":
+			target := "src"
+			if len(filteredArgs) > 0 {
+				target = filteredArgs[0]
+			}
+			utils.WatchAndRun(target)
+
+	case "build":
+		if err := utils.RunBuild(); err != nil {
+			logger.Error("Build failed", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("Build successful!")
+	
+	case "run-jar":
+		if len(filteredArgs) < 1 {
+			logger.Error("run-jar requires a jar path.")
+			return
+		}
+		jarPath := filteredArgs[0]
+		mainClass := ""
+		if len(filteredArgs) > 1 {
+			mainClass = filteredArgs[1]
+		}
+		if err := utils.RunJar(jarPath, mainClass); err != nil {
+			logger.Error("Failed to run JAR", "error", err)
+		}
+
+	case "help", "-h", "--help":
+		printHelp()
+
+	default:
+		logger.Warn("Unknown command", "command", command)
+		printHelp()
 	}
 }

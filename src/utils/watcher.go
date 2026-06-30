@@ -1,50 +1,75 @@
 package utils
 
 import (
-	"fmt"
-	"log"
+	"crypto/sha256"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/charmbracelet/log"
 	"github.com/fsnotify/fsnotify"
 )
+
+func getFileHash(path string) ([32]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return [32]byte{}, err
+	}
+	var res [32]byte
+	copy(res[:], h.Sum(nil))
+	return res, nil
+}
 
 func WatchAndRun(input string) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Failed to initialize watcher", "error", err)
 	}
 	defer watcher.Close()
+	fileHashes := make(map[string][32]byte)
 
-	fmt.Println("👀 Watching for changes in 'src/' and 'jar-cart.json'... (Press Ctrl+C to stop)")
+	log.Info("Watching for changes (Content-Verified)...")
 	RunProject(input)
-	filepath.Walk("src", func(path string, info os.FileInfo, err error) error {
-		if info.IsDir() {
-			return watcher.Add(path)
+
+	filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+		if err == nil && info.IsDir() && (path == "bin" || path == "dist" || path == ".git") {
+			return filepath.SkipDir
+		}
+		if err == nil && !info.IsDir() && (strings.HasSuffix(path, ".java") || path == "jar-cart.json") {
+			watcher.Add(path)
+			hash, _ := getFileHash(path)
+			fileHashes[path] = hash
 		}
 		return nil
 	})
-	watcher.Add("jar-cart.json")
 
+	var lastRun time.Time
 	for {
 		select {
 		case event, ok := <-watcher.Events:
 			if !ok { return }
-			isJava := strings.HasSuffix(event.Name, ".java")
-			isManifest := strings.Contains(event.Name, "jar-cart.json")
-			
-			if (isJava || isManifest) && (event.Op&fsnotify.Write == fsnotify.Write || event.Op&fsnotify.Create == fsnotify.Create) {
-				if isManifest {
-					fmt.Printf("\n⚙️ Manifest change detected! Syncing and reloading with new configuration...\n")
-				} else {
-					fmt.Printf("\n🔄 Change detected in %s. Recompiling...\n", event.Name)
-				}
-				RunProject(input)
+			if event.Op != fsnotify.Write { continue }
+			newHash, err := getFileHash(event.Name)
+			if err == nil && newHash == fileHashes[event.Name] {
+				continue 
 			}
+			fileHashes[event.Name] = newHash
+			if time.Since(lastRun) < 1*time.Second { continue }
+			lastRun = time.Now()
+
+			log.Info("Actual change detected, recompiling...", "file", event.Name)
+			go RunProject(input)
+
 		case err, ok := <-watcher.Errors:
 			if !ok { return }
-			fmt.Println("❌ Watcher error:", err)
+			log.Error("Watcher error", "error", err)
 		}
 	}
 }

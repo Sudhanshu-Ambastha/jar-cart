@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Sudhanshu-Ambastha/jar-cart/src/models"
+	"github.com/charmbracelet/log"
 )
 
 type SyncTask struct {
@@ -49,7 +50,7 @@ func IsOnline() bool {
 func CleanupLibDir(projectDir string, expectedEntries map[string]LockEntry) error {
 	libDir := filepath.Join(projectDir, "lib")
 	if _, err := os.Stat(libDir); os.IsNotExist(err) {
-		return nil 
+		return nil
 	}
 
 	files, err := os.ReadDir(libDir)
@@ -62,23 +63,22 @@ func CleanupLibDir(projectDir string, expectedEntries map[string]LockEntry) erro
 		expectedFiles[filepath.Base(entry.Path)] = true
 	}
 
-	fmt.Printf("🧹 Scanning lib/ for cleanup (Total files: %d)\n", len(files))
+	log.Info("Scanning lib/ for cleanup", "total_files", len(files))
 
 	for _, file := range files {
 		fileName := file.Name()
-		
 		if file.IsDir() || filepath.Ext(fileName) != ".jar" {
 			continue
 		}
 
 		if !expectedFiles[fileName] {
-			fmt.Printf("🗑️ Removing unused: %s\n", fileName)
+			log.Warn("Removing unused dependency", "file", fileName)
 			fullPath := filepath.Join(libDir, fileName)
 			if err := os.Remove(fullPath); err != nil {
-				fmt.Printf("❌ Failed to remove %s: %v\n", fileName, err)
+				log.Error("Failed to remove file", "file", fileName, "error", err)
 			}
 		} else {
-			fmt.Printf("✅ Keeping: %s\n", fileName)
+			log.Debug("Keeping dependency", "file", fileName)
 		}
 	}
 	return nil
@@ -114,7 +114,7 @@ func GetTransitiveDependencies(dep models.Dependency) ([]models.Dependency, erro
 	return transitives, nil
 }
 
-func ResolveParallelDependencies(projectDir string, dependencies []models.Dependency) (map[string]LockEntry, error) {
+func ResolveParallelDependencies(projectDir string, dependencies []models.Dependency, resolveTransitives bool) (map[string]LockEntry, error) {
 	homeDir, _ := os.UserHomeDir()
 	globalCacheDir := filepath.Join(homeDir, ".jar-cart", "cache")
 
@@ -128,15 +128,14 @@ func ResolveParallelDependencies(projectDir string, dependencies []models.Depend
 		
 		if _, exists := fullDepMap[key]; !exists {
 			fullDepMap[key] = dep
-			if IsOnline() {
+			
+			if resolveTransitives && IsOnline() {
 				transitives, err := GetTransitiveDependencies(dep)
 				if err == nil {
 					queue = append(queue, transitives...)
 				} else {
-					fmt.Printf("⚠️ Could not resolve transitives for %s:%s (POM missing)\n", dep.Group, dep.Library)
+					log.Warn("Could not resolve transitives (POM missing)", "dep", key)
 				}
-			} else {
-				fmt.Printf("🌐 Offline mode: Skipping transitive resolution for %s\n", dep.Library)
 			}
 		}
 	}
@@ -151,7 +150,11 @@ func ResolveParallelDependencies(projectDir string, dependencies []models.Depend
 		go func() {
 			defer wg.Done()
 			for task := range tasksChan {
-				task.Error = processDependencyExecution(task.Dep, globalCacheDir, filepath.Join(task.ProjectDir, "lib"))
+				err := processDependencyExecution(task.Dep, globalCacheDir, filepath.Join(task.ProjectDir, "lib"))
+				if err != nil {
+					log.Error("Failed to process dependency", "dep", task.Dep.Library, "err", err)
+					task.Error = err
+				}
 				resultsChan <- task
 			}
 		}()
@@ -163,11 +166,10 @@ func ResolveParallelDependencies(projectDir string, dependencies []models.Depend
 	close(tasksChan)
 	wg.Wait()
 	close(resultsChan)
-
 	lockEntries := make(map[string]LockEntry)
 	for res := range resultsChan {
 		if res.Error != nil {
-			return nil, res.Error
+			continue 
 		}
 		
 		jarName := fmt.Sprintf("%s-%s.jar", res.Dep.Library, res.Dep.Version)
@@ -187,23 +189,23 @@ func ResolveParallelDependencies(projectDir string, dependencies []models.Depend
 }
 
 func downloadWithMirrors(dep models.Dependency, targetPath string) error {
-    mirrors := []string{
-        "https://repo1.maven.org/maven2",
-        "https://repo.maven.apache.org/maven2",
-        "https://maven.aliyun.com/repository/public",
-    }
-    
-    groupURLPath := strings.ReplaceAll(dep.Group, ".", "/")
-    jarName := fmt.Sprintf("%s-%s.jar", dep.Library, dep.Version)
-    
-    for _, base := range mirrors {
-        url := fmt.Sprintf("%s/%s/%s/%s/%s", base, groupURLPath, dep.Library, dep.Version, jarName)
-        fmt.Printf("📥 Trying to download from: %s\n", base)
-        if err := streamAndCacheAsset(url, targetPath); err == nil {
-            return nil
-        }
-    }
-    return fmt.Errorf("failed to download from all mirrors")
+	mirrors := []string{
+		"https://repo1.maven.org/maven2",
+		"https://repo.maven.apache.org/maven2",
+		"https://maven.aliyun.com/repository/public",
+	}
+	
+	groupURLPath := strings.ReplaceAll(dep.Group, ".", "/")
+	jarName := fmt.Sprintf("%s-%s.jar", dep.Library, dep.Version)
+	
+	for _, base := range mirrors {
+		url := fmt.Sprintf("%s/%s/%s/%s/%s", base, groupURLPath, dep.Library, dep.Version, jarName)
+		log.Info("Attempting download", "mirror", base)
+		if err := streamAndCacheAsset(url, targetPath); err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("failed to download from all mirrors")
 }
 
 func ResolveCacheToCoordinate(filename string) string {
@@ -215,16 +217,16 @@ func ResolveCacheToCoordinate(filename string) string {
 }
 
 func linkFromCacheToLib(src, dst string) error {
-    if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-        return fmt.Errorf("failed to create lib dir: %w", err)
-    }
-    _ = os.Remove(dst)
-    err := os.Link(src, dst)
-    if err != nil {
-        return fallbackFileCopy(src, dst)
-    }
-    fmt.Printf("🔗 Linked: %s\n", filepath.Base(dst))
-    return nil
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return fmt.Errorf("failed to create lib dir: %w", err)
+	}
+	_ = os.Remove(dst)
+	err := os.Link(src, dst)
+	if err != nil {
+		return fallbackFileCopy(src, dst)
+	}
+	log.Info("Linked dependency to lib/", "file", filepath.Base(dst))
+	return nil
 }
 
 func processDependencyExecution(dep models.Dependency, globalCacheDir, localLibDir string) error {
@@ -268,7 +270,19 @@ func streamAndCacheAsset(url, targetPath string) error {
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(out, resp.Body)
+	defer out.Close()
+	
+	pw := &progressWriter{
+		total:     resp.ContentLength,
+		lastPrint: time.Now(),
+	}
+
+	_, err = io.Copy(out, io.TeeReader(resp.Body, pw))
+	
+	if pw.total > 0 {
+		fmt.Println() 
+	}
+
 	out.Close()
 	if err != nil {
 		return err

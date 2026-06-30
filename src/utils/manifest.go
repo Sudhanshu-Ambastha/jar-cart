@@ -9,6 +9,7 @@ import (
 
 	"github.com/Sudhanshu-Ambastha/jar-cart/src/models"
 	"github.com/Sudhanshu-Ambastha/jar-cart/src/utils/adapters"
+	"github.com/charmbracelet/log"
 	"github.com/manifoldco/promptui"
 )
 
@@ -29,8 +30,8 @@ func ParseManifest(filePath string) ([]models.Dependency, error) {
 }
 
 func GenerateLockFile(projectDir string, deps []models.Dependency) error {
-	fmt.Println("🔒 Generating/Updating lockfile...")
-	lockEntries, err := ResolveParallelDependencies(projectDir, deps)
+	log.Info("Generating/Updating lockfile...")
+	lockEntries, err := ResolveParallelDependencies(projectDir, deps, true)
 	if err != nil {
 		return err
 	}
@@ -47,11 +48,11 @@ func updateOrAddDependency(manifest *models.Manifest, newDep models.Dependency) 
 	for i, d := range manifest.Dependencies {
 		if d.Group == newDep.Group && d.Library == newDep.Library {
 			if manifest.Dependencies[i].Version != newDep.Version {
-				fmt.Printf("🔄 Updating version: %s -> %s\n", d.Version, newDep.Version)
+				log.Info("Updating dependency version", "old", d.Version, "new", newDep.Version)
 				manifest.Dependencies[i].Version = newDep.Version
 				return true
 			}
-			fmt.Println("ℹ️ Dependency already exists. Checking synchronization...")
+			log.Info("Dependency already exists. Checking synchronization...")
 			return false
 		}
 	}
@@ -60,7 +61,7 @@ func updateOrAddDependency(manifest *models.Manifest, newDep models.Dependency) 
 }
 
 func refreshLockFile() error {
-	fmt.Println("🔄 Regenerating lockfile...")
+	log.Info("Regenerating lockfile...")
 	newLock := &LockFile{
 		Version:      1,
 		GeneratedAt:  time.Now().Format(time.RFC3339),
@@ -88,41 +89,38 @@ func refreshLockFile() error {
 }
 
 func AddDependency(manifestPath, rawCoordinate string, isDirect bool, libDir string) error {
-    group, lib, version, err := resolveCoordinate(rawCoordinate)
-    if err != nil {
-        return err
-    }
+	group, lib, version, err := resolveCoordinate(rawCoordinate)
+	if err != nil {
+		return err
+	}
 
-    newDep := models.Dependency{Group: group, Library: lib, Version: version}
-    adapter := GetAdapterForFile(manifestPath)
-    manifest, err := adapter.Load(manifestPath)
-    if err != nil {
-        return fmt.Errorf("failed to load manifest: %w", err)
-    }
+	newDep := models.Dependency{Group: group, Library: lib, Version: version}
+	adapter := GetAdapterForFile(manifestPath)
+	manifest, err := adapter.Load(manifestPath)
+	if err != nil {
+		return fmt.Errorf("failed to load manifest: %w", err)
+	}
 
-    modified := updateOrAddDependency(manifest, newDep)
+	modified := updateOrAddDependency(manifest, newDep)
 
-    if modified {
-        if err := adapter.Save(manifestPath, manifest); err != nil {
-            return fmt.Errorf("failed to save manifest: %w", err)
-        }
-        fmt.Println("💾 Manifest updated successfully.")
-    } else {
-        fmt.Println("ℹ️ Manifest already contains this dependency.")
-    }
+	if modified {
+		if err := adapter.Save(manifestPath, manifest); err != nil {
+			return fmt.Errorf("failed to save manifest: %w", err)
+		}
+		log.Info("Manifest updated successfully")
+	}
 
-    fmt.Printf("🔒 Synchronizing: %s:%s\n", group, lib)
-    if _, err := ResolveParallelDependencies(".", []models.Dependency{newDep}); err != nil {
-        return err
-    }
+	log.Info("Synchronizing dependency", "dep", group+":"+lib)
+	shouldResolve := manifest.ResolveTransitives 
+	if _, err := ResolveParallelDependencies(".", []models.Dependency{newDep}, shouldResolve); err != nil {
+		return err
+	}
 
-    if err := refreshLockFile(); err != nil {
-        fmt.Printf("⚠️ Warning: Failed to update lockfile: %v\n", err)
-    } else {
-        fmt.Println("✅ Lockfile generated successfully.")
-    }
+	if err := refreshLockFile(); err != nil {
+		log.Warn("Failed to update lockfile", "error", err)
+	}
 
-    return nil
+	return nil
 }
 
 func RemoveDependency(manifestPath, rawCoordinate string, libDir string) error {
@@ -178,13 +176,13 @@ func RunSync(projectDir string) error {
 		return fmt.Errorf("no manifest file found in %s", absDir)
 	}
 
-	fmt.Printf("📦 Synchronizing via: %s\n", manifestPath)
-	deps, err := ParseManifest(filepath.Join(absDir, manifestPath))
+	log.Info("Synchronizing via", "manifest", manifestPath)
+	manifest, err := LoadManifest(filepath.Join(absDir, manifestPath))
 	if err != nil {
-		return fmt.Errorf("parse manifest error: %v", err)
+		return fmt.Errorf("load manifest error: %v", err)
 	}
 
-	lockEntries, err := ResolveParallelDependencies(absDir, deps)
+	lockEntries, err := ResolveParallelDependencies(absDir, manifest.Dependencies, manifest.ResolveTransitives)
 	if err != nil {
 		return fmt.Errorf("resolve error: %v", err)
 	}
@@ -194,9 +192,10 @@ func RunSync(projectDir string) error {
 		return fmt.Errorf("cleanup error: %v", err)
 	}
 
-	fmt.Println("✨ Dependencies synced and linked perfectly!")
+	log.Info("Dependencies synced and linked perfectly!")
 	return nil
 }
+
 func syncToProjectFiles(deps []models.Dependency) {
 	targets := map[string]adapters.ManifestAdapter{
 		"build.gradle": &adapters.GradleAdapter{},
@@ -204,7 +203,7 @@ func syncToProjectFiles(deps []models.Dependency) {
 
 	for fileName, adapter := range targets {
 		if _, err := os.Stat(fileName); err == nil {
-			fmt.Printf("🔄 Adaptive Sync: Updating native file -> %s\n", fileName)
+			log.Info("Adaptive Sync: Updating native file", "file", fileName)
 			_ = adapter.Sync(fileName, deps)
 		}
 	}
@@ -213,7 +212,7 @@ func syncToProjectFiles(deps []models.Dependency) {
 func resolveCoordinate(raw string) (string, string, string, error) {
 	parts := strings.Split(raw, ":")
 	if len(parts) < 2 {
-		fmt.Printf("🔍 Ambiguous coordinate '%s'. Searching for matches...\n", raw)
+		log.Warn("Ambiguous coordinate, searching for matches", "input", raw)
 		suggestions := GetSearchSuggestions(raw)
 		if len(suggestions) == 0 {
 			return "", "", "", fmt.Errorf("no matches found for '%s'", raw)
@@ -275,7 +274,7 @@ func ConvertManifest(sourcePath, targetExt string) error {
 		return err
 	}
 
-	fmt.Printf("🧹 Removing old manifest: %s\n", sourcePath)
+	log.Info("Removing old manifest", "file", sourcePath)
 	return os.Remove(sourcePath)
 }
 
