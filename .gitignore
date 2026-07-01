@@ -1,0 +1,15 @@
+.github/modernize/
+.vscode/
+spring-maven-test/
+my-app/
+myapp/
+t2/
+test/
+*.pfx
+*.exe
+.env
+*.db
+.jar-cart/bin/
+*.tmp
+*.syso
+*.txt

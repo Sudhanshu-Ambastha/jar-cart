@@ -1,0 +1,85 @@
+name: Production Build & Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build Asset Matrix
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - os: windows
+            arch: amd64
+            runner: windows-latest
+            binary_name: jar-cart.exe
+            asset_name: jar-cart-x86_64-windows.zip
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+            binary_name: jar-cart
+            asset_name: jar-cart-x86_64-linux.tar.gz
+          - os: darwin
+            arch: amd64
+            runner: macos-latest
+            binary_name: jar-cart
+            asset_name: jar-cart-x86_64-macos.tar.gz
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go Environment
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build Windows Binary
+        if: matrix.os == 'windows'
+        shell: powershell
+        run: |
+          ./scripts/build.ps1
+          ./scripts/package-windows.ps1 `
+            -BinaryName "${{ matrix.binary_name }}" `
+            -AssetName "${{ matrix.asset_name }}" `
+            -CertBase64 "${{ secrets.JC_CERT_BASE64 }}" `
+            -CertPassword "${{ secrets.JC_CERT_PASSWORD }}"
+
+      - name: Build POSIX Binary
+        if: matrix.os != 'windows'
+        run: |
+          go build -ldflags="-s -w" -trimpath -o ${{ matrix.binary_name }} ./src
+          chmod +x ./scripts/package-posix.sh
+          ./scripts/package-posix.sh "${{ matrix.binary_name }}" "${{ matrix.asset_name }}"
+
+      - name: Staging Artifact Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: asset-${{ matrix.os }}
+          path: ${{ matrix.asset_name }}
+          retention-days: 1
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: build-and-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch All Staged Assets
+        uses: actions/download-artifact@v4
+        with:
+          path: ./dist
+          merge-multiple: true
+
+      - name: Create Production GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./dist/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
