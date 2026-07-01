@@ -16,7 +16,7 @@ import (
 const (
 	ManifestJSON = "jar-cart.json"
 	ManifestXML  = "jar-cart.xml"
-	Version = "v0.1.1"
+	Version = "v0.2.0"
 )
 
 func printHelp() {
@@ -98,13 +98,25 @@ func main() {
 		if len(filteredArgs) > 0 {
 			projectName = filteredArgs[0]
 		}
-		manifestFormat, javaVersion := utils.InteractiveInit("25")
-		manifestType := manifestFormat
-		if useXML { manifestType = "xml" }
+		
+		manifestFormat, javaVersion := utils.InteractiveInit("")
+		if manifestFormat == "" {
+			logger.Fatal("Initialization cancelled or failed.")
+		}
 
-		targetDir, err := utils.HandleInit(projectName, manifestType)
+		manifestType := manifestFormat
+		if useXML { 
+			manifestType = "xml" 
+		}
+		
+		targetDir, err := utils.HandleInit(projectName, manifestType, javaVersion)
 		if err != nil {
 			logger.Fatal("Failed to initialize", "error", err)
+		}
+
+		logger.Info("Checking Java runtime...", "version", javaVersion)
+		if err := utils.EnsureJavaVersion(javaVersion); err != nil {
+			logger.Fatal("Java provisioning failed", "error", err)
 		}
 
 		logger.Info("Scaffolding project", "path", targetDir, "format", manifestType)
@@ -122,6 +134,45 @@ func main() {
 		} else {
 			logger.Info("Cache cleared successfully.")
 		}
+	
+	case "list-java","ls-java":
+        utils.ListJDKs()
+
+	case "cache":
+        cacheArgs := os.Args[2:]
+        if len(cacheArgs) < 1 {
+            fmt.Println("Usage: jar-cart cache [list|ls|remove|rm] [targets...]")
+            return
+        }
+
+        subCmd := cacheArgs[0]
+        switch subCmd {
+        case "list", "ls":
+            utils.ListCache()
+        case "remove", "rm":
+            if len(cacheArgs) < 2 {
+                log.Error("Specify targets (e.g., java17, gson-2.14.0.jar)")
+                return
+            }
+            
+            for _, target := range cacheArgs[1:] {
+                if strings.HasPrefix(target, "java") {
+                    if err := utils.RemoveJDK(strings.TrimPrefix(target, "java")); err != nil {
+                        log.Error("Failed to remove JDK", "version", target, "error", err)
+                    } else {
+                        log.Info("JDK removed successfully", "version", target)
+                    }
+                } else {
+                    if err := utils.RemoveCachedItem(target); err != nil {
+                        log.Error("Failed to remove artifact", "target", target, "error", err)
+                    } else {
+                        log.Info("Artifact removed successfully", "target", target)
+                    }
+                }
+            }
+        default:
+            fmt.Println("Unknown cache command. Use 'list' or 'remove'.")
+        }
 
 	case "search":
 		if len(filteredArgs) < 1 {

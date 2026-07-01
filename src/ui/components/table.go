@@ -29,26 +29,29 @@ func NewDependencyTable(columns []table.Column, rows []table.Row) table.Model {
 }
 
 func HelpTable() table.Model {
-	columns := []table.Column{
-		{Title: "Command", Width: 15},
-		{Title: "Description", Width: 60},
-	}
+    columns := []table.Column{
+        {Title: "Command", Width: 15},
+        {Title: "Description", Width: 60},
+    }
 
-	rows := []table.Row{
-		{"init", "Constructs an interactive or default blueprint layout"},
-		{"cache-clear", "Clears all cached blueprints and registry data"},
-		{"search <query>", "Searches Maven Central API for packages"},
-		{"sync", "Synchronizes dependencies"},
-		{"add <pkg>", "Appends an artifact dependency to your manifest"},
-		{"remove <pkg>", "Strips an artifact marker and cleans up the local JAR"},
-		{"convert <type>", "Translates configuration contexts (json|xml)"},
-		{"run <path>", "Compiles and runs a Java source file or script"},
-		{"run-jar <jar>", "Runs the built JAR with all dependencies"},
-		{"decompile <jar>", "Extracts source code via --engine (vineflower|cfr|procyon)"},
-		{"watch <path>", "Starts a reactive file-watcher for live reloads"},
-		{"build", "Packages the project into a portable Fat JAR"},
-		{"help", "Displays this documentation"},
-	}
+    rows := []table.Row{
+        {"init", "Constructs an interactive project layout with JDK locking"},
+        {"ls-java", "Inventory all managed JDK runtimes"},
+        {"cache list/ls", "Displays inventory and storage usage of cached artifacts"},
+        {"cache remove/rm", "Fuzzy-match removal for JAR artifacts and JDKs"},
+        {"cache-clear", "Wipes all cached artifacts and registry data"},
+        {"search <query>", "Searches Maven Central API for packages"},
+        {"sync", "Synchronizes dependencies and provisions local runtimes"},
+        {"add <pkg>", "Adds an artifact dependency to your manifest"},
+        {"remove <pkg>", "Removes dependency and cleans local links"},
+        {"convert <type>", "Translates manifest formats (json/xml)"},
+        {"run <path>", "Compiles and executes with the project-locked JDK"},
+        {"run-jar <jar>", "Runs built JAR with isolated environment"},
+        {"decompile <jar>", "Extracts source via (vineflower|cfr|procyon)"},
+        {"watch <path>", "Reactive file-watcher with SHA256 integrity checks"},
+        {"build", "Packages project into a portable Fat JAR"},
+        {"help", "Displays this documentation"},
+    }
 
-	return NewDependencyTable(columns, rows)
+    return NewDependencyTable(columns, rows)
 }

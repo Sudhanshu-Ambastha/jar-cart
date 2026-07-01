@@ -9,20 +9,22 @@ case "$ARCH" in
     *)              TARGET_ARCH="x86_64" ;;
 esac
 
-if [ "$OS" = "Linux" ]; then
-    PLATFORM="linux"; EXTENSION="tar.gz"
-elif [ "$OS" = "Darwin" ]; then
-    PLATFORM="macos"; EXTENSION="tar.gz"
-elif echo "$OS" | grep -qE "MINGW|MSYS|CYGWIN"; then
-    PLATFORM="windows"; EXTENSION="zip"
-else
-    echo "❌ Unsupported OS: $OS"
-    exit 1
-fi
+case "$OS" in
+    Linux)  PLATFORM="linux"; EXTENSION="tar.gz" ;;
+    Darwin) PLATFORM="macos"; EXTENSION="tar.gz" ;;
+    *) 
+        if echo "$OS" | grep -qE "MINGW|MSYS|CYGWIN"; then
+            PLATFORM="windows"; EXTENSION="zip"
+        else
+            echo "❌ Unsupported OS: $OS"
+            exit 1
+        fi
+        ;;
+esac
 
 if [ -z "$VERSION" ]; then
     echo "🔍 Fetching latest version tag..."
-    VERSION=$(curl -s "https://api.github.com/repos/Sudhanshu-Ambastha/jar-cart/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    VERSION=$(curl -s "https://api.github.com/repos/Sudhanshu-Ambastha/jar-cart/releases/latest" | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
     if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
         echo "❌ Failed to resolve latest version."
         exit 1
@@ -33,9 +35,9 @@ FILE_NAME="jar-cart-${TARGET_ARCH}-${PLATFORM}.${EXTENSION}"
 URL="https://github.com/Sudhanshu-Ambastha/jar-cart/releases/download/${VERSION}/${FILE_NAME}"
 CHECKSUM_URL="${URL}.sha256"
 
-TMP_DIR="/tmp/jar-cart-update"
-mkdir -p "$TMP_DIR"
+TMP_DIR="/tmp/jar-cart-install-$$"
 INSTALL_DIR="$HOME/.jar-cart/bin"
+mkdir -p "$TMP_DIR"
 mkdir -p "$INSTALL_DIR"
 
 echo "⚡ Downloading $FILE_NAME ($VERSION)..."
@@ -44,6 +46,7 @@ curl -qLsSf "$CHECKSUM_URL" -o "$TMP_DIR/checksum.sha256"
 
 echo "🛡️ Verifying integrity..."
 EXPECTED_HASH=$(cat "$TMP_DIR/checksum.sha256" | tr -d '[:space:]')
+ACTUAL_HASH=""
 
 if command -v sha256sum >/dev/null 2>&1; then
     ACTUAL_HASH=$(sha256sum "$TMP_DIR/$FILE_NAME" | awk '{print $1}')
@@ -55,14 +58,12 @@ else
 fi
 
 if [ "$ACTUAL_HASH" != "$EXPECTED_HASH" ]; then
-    echo "❌ Hash mismatch! Update aborted."
+    echo "❌ Hash mismatch! Expected $EXPECTED_HASH, got $ACTUAL_HASH."
     rm -rf "$TMP_DIR"
     exit 1
 fi
 
-echo "📦 Unpacking..."
-rm -f "$INSTALL_DIR/jar-cart"
-
+echo "📦 Unpacking into $INSTALL_DIR..."
 if [ "$EXTENSION" = "tar.gz" ]; then
     tar -xzf "$TMP_DIR/$FILE_NAME" -C "$INSTALL_DIR"
 else
@@ -75,3 +76,4 @@ echo "---"
 echo "✨ jar-cart $VERSION successfully installed!"
 echo "👉 Add this to your shell config (~/.bashrc or ~/.zshrc):"
 echo '    export PATH="$HOME/.jar-cart/bin:$PATH"'
+echo "👉 Then run: source ~/.bashrc (or your config file)"

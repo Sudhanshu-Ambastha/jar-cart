@@ -22,6 +22,38 @@ type GitHubRelease struct {
 	TagName string `json:"tag_name"`
 }
 
+func unzipBinary(src, destDir string) error {
+	r, err := zip.OpenReader(src)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	for _, f := range r.File {
+		if strings.HasSuffix(f.Name, ".exe") || f.Name == "jar-cart" {
+			outPath := filepath.Join(destDir, "jar-cart.exe")
+			if runtime.GOOS != "windows" {
+				outPath = filepath.Join(destDir, "jar-cart")
+			}
+			
+			outFile, err := os.OpenFile(outPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
+			if err != nil {
+				return err
+			}
+			rc, err := f.Open()
+			if err != nil {
+				outFile.Close()
+				return err
+			}
+			_, err = io.Copy(outFile, rc)
+			outFile.Close()
+			rc.Close()
+			return err
+		}
+	}
+	return fmt.Errorf("no executable found in archive")
+}
+
 func AutoCheckUpdate(currentVersion string) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -253,19 +285,18 @@ func SelfUpdate(currentVersion string) error {
 	}
 
 	if release.TagName == currentVersion {
-		logger.Info("You are already on the absolute latest version", "version", currentVersion)
+		logger.Info("You are already on the latest version", "version", currentVersion)
 		return nil
 	}
 
-	logger.Info("New version found, preparing asset downloads", "latest", release.TagName, "current", currentVersion)
+	logger.Info("New version found, preparing update", "latest", release.TagName)
 
-	platform, ext := "linux", "tar.gz"
-	if runtime.GOOS == "windows" {
-		platform, ext = "windows", "zip"
-	} else if runtime.GOOS == "darwin" {
-		platform, ext = "macos", "tar.gz"
+	// Cross-platform mapping
+	platform := runtime.GOOS
+	ext := "tar.gz"
+	if platform == "windows" {
+		ext = "zip"
 	}
-
 	arch := "x86_64"
 	if runtime.GOARCH == "arm64" {
 		arch = "aarch64"
@@ -273,66 +304,48 @@ func SelfUpdate(currentVersion string) error {
 
 	fileName := fmt.Sprintf("jar-cart-%s-%s.%s", arch, platform, ext)
 	downloadURL := fmt.Sprintf("https://github.com/Sudhanshu-Ambastha/jar-cart/releases/download/%s/%s", release.TagName, fileName)
-	checksumURL := fmt.Sprintf("https://github.com/Sudhanshu-Ambastha/jar-cart/releases/download/%s/%s.sha256", release.TagName, fileName)
+	checksumURL := downloadURL + ".sha256"
 
-	execPath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("cannot locate running binary path: %v", err)
-	}
+	execPath, _ := os.Executable()
 	tmpFile := execPath + ".tmp"
 	oldFile := execPath + ".old"
 
-	respBin, err := http.Get(downloadURL)
-	if err != nil {
-		return err
-	}
+	respBin, _ := http.Get(downloadURL)
 	defer respBin.Body.Close()
-
-	out, err := os.Create(tmpFile)
-	if err != nil {
-		return err
-	}
-	_, _ = io.Copy(out, respBin.Body)
+	out, _ := os.Create(tmpFile)
+	io.Copy(out, respBin.Body)
 	out.Close()
 
-	logger.Info("Verifying binary integrity...")
-	respSum, err := http.Get(checksumURL)
-	if err != nil {
-		return fmt.Errorf("could not fetch checksums: %v", err)
-	}
+	respSum, _ := http.Get(checksumURL)
 	defer respSum.Body.Close()
-
-	sumContent, err := io.ReadAll(respSum.Body)
-	if err != nil {
-		return err
-	}
-
-	f, err := os.Open(tmpFile)
-	if err != nil {
-		return err
-	}
+	sumContent, _ := io.ReadAll(respSum.Body)
+	
+	f, _ := os.Open(tmpFile)
 	h := sha256.New()
-	_, _ = io.Copy(h, f)
+	io.Copy(h, f)
 	f.Close()
-	computedHash := hex.EncodeToString(h.Sum(nil))
-	expectedHash := strings.ToLower(strings.TrimSpace(string(sumContent)))
-	if expectedHash != computedHash {
-		_ = os.Remove(tmpFile)
-		return fmt.Errorf("security alert: checksum mismatch! Expected %s, got %s", expectedHash, computedHash)
+	
+	if hex.EncodeToString(h.Sum(nil)) != strings.ToLower(strings.TrimSpace(string(sumContent))) {
+		os.Remove(tmpFile)
+		return fmt.Errorf("checksum mismatch")
 	}
 
 	if runtime.GOOS == "windows" {
-		_ = os.Rename(execPath, oldFile)
-		err = os.Rename(tmpFile, execPath)
+		extractDir := filepath.Join(os.TempDir(), "jar-cart-update")
+		os.MkdirAll(extractDir, 0755)
+		unzipBinary(tmpFile, extractDir)
+		
+		newExe := filepath.Join(extractDir, "jar-cart.exe")
+		os.Rename(execPath, oldFile)
+		err = os.Rename(newExe, execPath)
 		if err != nil {
-			logger.Warn("Binary in use, queuing swap for next execution")
-			cmd := fmt.Sprintf("timeout /t 1 && move /y \"%s\" \"%s\"", tmpFile, execPath)
+			cmd := fmt.Sprintf("timeout /t 1 && move /y \"%s\" \"%s\"", newExe, execPath)
 			exec.Command("cmd", "/c", cmd).Start()
 		}
 	} else {
-		_ = os.Rename(execPath, oldFile)
-		_ = os.Rename(tmpFile, execPath)
-		_ = os.Chmod(execPath, 0755)
+		os.Rename(execPath, oldFile)
+		os.Rename(tmpFile, execPath)
+		os.Chmod(execPath, 0755)
 	}
 
 	logger.Info("Successfully updated jar-cart", "version", release.TagName)

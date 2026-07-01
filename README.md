@@ -57,31 +57,28 @@ Works out of the box with `jar-cart.json` or `jar-cart.xml`.
 ### Installation
 
 Use the official install scripts to get started instantly:
-**Windows (PowerShell):**
 
+**Windows (PowerShell):**
 ```powershell
 iwr https://raw.githubusercontent.com/Sudhanshu-Ambastha/jar-cart/main/scripts/install.ps1 -UseBasicParsing | iex
 ```
 
 **Linux / macOS:**
-
 ```bash
 curl -sSL https://raw.githubusercontent.com/Sudhanshu-Ambastha/jar-cart/main/scripts/install.sh | bash
 ```
 
 > **Note:** By default, these scripts fetch the latest version. If you need to install a specific version, you can override this:
-> **Windows (PowerShell):**
 
+**Windows (PowerShell):**
 ```powershell
 iwr https://raw.githubusercontent.com/Sudhanshu-Ambastha/jar-cart/main/scripts/install.ps1 -OutFile install.ps1
 ```
-
 ```powershell
 .\install.ps1 -Version v0.1.1
 ```
 
 **Linux / macOS:**
-
 ```bash
 VERSION=v0.1.1 curl -sSL https://raw.githubusercontent.com/Sudhanshu-Ambastha/jar-cart/main/scripts/install.sh | bash
 ```
@@ -124,22 +121,26 @@ jar-cart run test
 
 ## 📋 Commands
 
-| Command           | Description                                                                                                                                                                                                                                             |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- | --------- |
-| `init`            | Creates an interactive or default project layout.                                                                                                                                                                                                       |
-| `add <pkg>`       | Adds an artifact to the manifest and resolves dependencies.                                                                                                                                                                                             |
-| `sync`            | Downloads dependencies and synchronizes the project runtime.                                                                                                                                                                                            |
-| `run <path>`      | Compiles with the **project-locked JDK** and executes.                                                                                                                                                                                                  |
-| `run-jar`         | Runs the built JAR using the project's isolated JDK.                                                                                                                                                                                                    |
-| `remove <pkg>`    | Removes a dependency and cleans associated links.                                                                                                                                                                                                       |
-| `convert <type>`  | Converts manifest formats (e.g., `json` to `xml`).                                                                                                                                                                                                      |
-| `cache-clear`     | Clears cached artifacts and metadata.                                                                                                                                                                                                                   |
-| `watch <path>`    | Starts a reactive, content-verified file-watcher. Unlike standard watchers that trigger on every file save, `jar-cart` uses SHA256 hashing to ensure re-compilation only occurs when meaningful code changes are detected, preventing redundant builds. |
-| `build`           | Packages the project into a standalone, portable Fat JAR.                                                                                                                                                                                               |
-| `decompile <jar>` | Extracts source code via --engine (vineflower                                                                                                                                                                                                           | cfr | procyon). |
+| Command | Description |
+| :--- | :--- |
+| `init` | Creates an interactive project layout with JDK locking. |
+| `ls-java` | Inventory all managed JDK runtimes. |
+| `cache list/ls` | Displays inventory and storage usage of cached artifacts. |
+| `cache remove/rm` | Fuzzy-match removal for JAR artifacts and JDKs. |
+| `cache-clear` | Wipes all cached artifacts and registry data. |
+| `search <query>` | Searches Maven Central API for packages. |
+| `sync` | Synchronizes dependencies and provisions local runtimes. |
+| `add <pkg>` | Adds an artifact dependency to your manifest. |
+| `remove <pkg>` | Removes dependency and cleans local links. |
+| `convert <type>` | Translates manifest formats (e.g., `json` to `xml`). |
+| `run <path>` | Compiles and executes with the project-locked JDK. |
+| `run-jar <jar>` | Runs built JAR using the project's isolated JDK. |
+| `decompile <jar>` | Extracts source code via --engine (vineflower/ cfr/ procyon). |
+| `watch <path>` | Starts a reactive, hash-verified file-watcher for incremental builds. |
+| `build` | Packages the project into a standalone, portable Fat JAR. |
+| `help` | Displays this documentation. |
 
 ---
-
 ## 🏗 Architecture
 
 ### Isolated Java Runtimes

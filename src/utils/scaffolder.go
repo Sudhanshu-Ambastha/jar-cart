@@ -50,7 +50,7 @@ func CleanCache() error {
 	return os.RemoveAll(filepath.Join(home, ".jar-cart", "cache"))
 }
 
-func HandleInit(projectName, manifestType string) (string, error) {
+func HandleInit(projectName, manifestType, javaVersion string) (string, error) {
 	var targetDir string
 
 	if projectName == "." {
@@ -88,8 +88,6 @@ public class App {
 		return targetDir, err
 	}
 
-	javaVersion := "25"
-
 	var err error
 	if manifestType == "xml" {
 		xmlContent := `<?xml version="1.0" encoding="UTF-8"?>
@@ -108,13 +106,13 @@ public class App {
 		err = os.WriteFile(xmlPath, []byte(xmlContent), 0644)
 	} else {
 		config := models.Manifest{
-			Project:     filepath.Base(targetDir),
-			JavaVersion: javaVersion,
-			ResolutionDepth:    "full",
+			Project:         filepath.Base(targetDir),
+			JavaVersion:     javaVersion,
+			ResolutionDepth: "full",
 			Scripts: map[string]string{
-				"hello":    "echo 'Hello from jar-cart!'",
-				"pretest":  "echo 'Compiling tests...'",
-				"test":     "echo 'Running tests...'",
+				"hello":   "echo 'Hello from jar-cart!'",
+				"pretest": "echo 'Compiling tests...'",
+				"test":    "echo 'Running tests...'",
 				"posttest": "echo 'Cleaning up test artifacts...'",
 			},
 			Dependencies: []models.Dependency{},

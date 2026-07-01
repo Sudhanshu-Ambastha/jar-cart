@@ -1,6 +1,9 @@
 param([string]$Version = "")
 $ErrorActionPreference = "Stop"
 
+$arch = "x86_64"
+if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { $arch = "aarch64" }
+
 if ([string]::IsNullOrEmpty($Version)) {
     Write-Host "🔍 Fetching latest version from GitHub..." -ForegroundColor Cyan
     try {
@@ -12,7 +15,6 @@ if ([string]::IsNullOrEmpty($Version)) {
     }
 }
 
-$arch = "x86_64"
 $baseUrl = "https://github.com/Sudhanshu-Ambastha/jar-cart/releases/download/$Version"
 $zipName = "jar-cart-$arch-windows.zip"
 $zipUrl = "$baseUrl/$zipName"
@@ -22,27 +24,40 @@ $tempDir = [System.IO.Path]::GetTempPath()
 $zipPath = Join-Path $tempDir $zipName
 $hashPath = Join-Path $tempDir "$zipName.sha256"
 
-Write-Host "⚡ Downloading $Version..." -ForegroundColor Cyan
-Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath
-Invoke-WebRequest -Uri $hashUrl -OutFile $hashPath
+Write-Host "⚡ Downloading $Version ($arch)..." -ForegroundColor Cyan
+try {
+    Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath
+    Invoke-WebRequest -Uri $hashUrl -OutFile $hashPath
+} catch {
+    Write-Error "❌ Failed to download files. Check your internet connection."
+    exit 1
+}
 
-Write-Host "🛡️ Verifying integrity..."
+Write-Host "🛡️ Verifying integrity..." -ForegroundColor Cyan
 $expectedHash = (Get-Content $hashPath).ToString().Trim()
 $actualHash = (Get-FileHash -Path $zipPath -Algorithm SHA256).Hash
 
 if ($actualHash -ne $expectedHash) {
-    Write-Error "❌ Hash mismatch! Update aborted."
+    Write-Error "❌ Hash mismatch! Expected $expectedHash, got $actualHash. Update aborted."
+    Remove-Item $zipPath, $hashPath -ErrorAction SilentlyContinue
     exit 1
 }
 Write-Host "✅ Integrity verified." -ForegroundColor Green
-$installDir = Join-Path $HOME ".jar-cart\bin"
-if (-not (Test-Path $installDir)) { New-Item -ItemType Directory -Path $installDir -Force }
 
-Write-Host "📦 Unpacking..."
-if (Test-Path "$installDir\jar-cart.exe") { Remove-Item "$installDir\jar-cart.exe" -Force }
+$installDir = Join-Path ([Environment]::GetFolderPath("UserProfile")) ".jar-cart\bin"
+if (-not (Test-Path $installDir)) { New-Item -ItemType Directory -Path $installDir -Force | Out-Null }
 
-Expand-Archive -Path $zipPath -DestinationPath $installDir -Force
-Remove-Item $zipPath
-Remove-Item $hashPath
+Write-Host "📦 Unpacking to $installDir..." -ForegroundColor Cyan
+try {
+    if (Test-Path "$installDir\jar-cart.exe") { 
+        Remove-Item "$installDir\jar-cart.exe" -Force 
+    }
+    Expand-Archive -Path $zipPath -DestinationPath $installDir -Force
+} catch {
+    Write-Warning "⚠️ Binary is locked by the OS. Please close all running 'jar-cart' processes and try again."
+    exit 1
+} finally {
+    Remove-Item $zipPath, $hashPath -ErrorAction SilentlyContinue
+}
 
-Write-Host "✨ Done! jar-cart is updated to $Version." -ForegroundColor Green
+Write-Host "✨ Done! jar-cart $Version is successfully installed." -ForegroundColor Green

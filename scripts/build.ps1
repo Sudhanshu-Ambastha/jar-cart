@@ -14,12 +14,16 @@ if ($IsWindows) {
     if (-not (Get-Command "goversioninfo" -ErrorAction SilentlyContinue)) {
         go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest
     }
-    goversioninfo -manifest=./src/versioninfo.json
+    goversioninfo -manifest=./src/versioninfo.json -out=./src/resource.syso
 }
 
 Write-Host "⚡ Compiling optimized jar-cart.exe..." -ForegroundColor Cyan
+
 $env:CGO_ENABLED = "0"
-go build -ldflags="-s -w" -trimpath -o jar-cart.exe ./src
+$env:GOOS = "windows"
+$env:GOARCH = "amd64"
+
+go build -ldflags="-s -w -H=windowsgui" -trimpath -o jar-cart.exe ./src
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "✅ Compilation Successful" -ForegroundColor Green

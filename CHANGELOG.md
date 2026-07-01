@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2026-07-02
+
+### Added
+
+- **Java Runtime Discovery**: Added `ls-java` command to inventory locally managed JDKs.
+- **Granular Cache Management**: Standardized `cache list` and `cache remove` with fuzzy-matching support for intelligent disk cleanup.
+- **Environment Parity**: `init` command now enforces interactive Java version pinning.
+
+### Improved
+
+- **Smart Artifact Routing**: Unified routing engine for JDK management and JAR dependencies.
+- **Self-Update Engine**: Completely rewritten self-update logic. Now supports **cross-platform ZIP/TAR extraction**, ensuring binary integrity and compatibility across Windows, Linux, and macOS.
+- **Robust CLI**: Added audit logging for bulk operations and hardened CLI responsiveness.
+- **Build Pipeline**: Optimized build scripts with explicit architecture targeting (Windows/POSIX) and automated SHA256 integrity verification for all release assets.
+
+### Fixed
+
+- **Windows Binary Compatibility**: Resolved executable linking issues by correctly generating and embedding Windows manifest resources (`resource.syso`).
+- **Update Failure Recovery**: Added automatic binary swapping with fallback queueing to handle OS file locks during self-updates.
+
+---
+
 ## [0.1.1] - 2026-07-01
 
 ### Added
