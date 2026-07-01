@@ -77,13 +77,13 @@ iwr https://raw.githubusercontent.com/Sudhanshu-Ambastha/jar-cart/main/scripts/i
 ```
 
 ```powershell
-.\install.ps1 -Version v0.1.0
+.\install.ps1 -Version v0.1.1
 ```
 
 **Linux / macOS:**
 
 ```bash
-VERSION=v0.1.0 curl -sSL https://raw.githubusercontent.com/Sudhanshu-Ambastha/jar-cart/main/scripts/install.sh | bash
+VERSION=v0.1.1 curl -sSL https://raw.githubusercontent.com/Sudhanshu-Ambastha/jar-cart/main/scripts/install.sh | bash
 ```
 
 ### Initialize a Project

@@ -58,11 +58,22 @@ jobs:
           chmod +x ./scripts/package-posix.sh
           ./scripts/package-posix.sh "${{ matrix.binary_name }}" "${{ matrix.asset_name }}"
 
+      - name: Generate Checksum
+        shell: bash
+        run: |
+          if [ "${{ matrix.os }}" == "windows" ]; then
+            certutil -hashfile "${{ matrix.asset_name }}" SHA256 | grep -v "SHA256" | grep -v "CertUtil" | tr -d '\r\n ' > "${{ matrix.asset_name }}.sha256"
+          else
+            shasum -a 256 "${{ matrix.asset_name }}" | awk '{print $1}' > "${{ matrix.asset_name }}.sha256"
+          fi
+
       - name: Staging Artifact Upload
         uses: actions/upload-artifact@v4
         with:
           name: asset-${{ matrix.os }}
-          path: ${{ matrix.asset_name }}
+          path: |
+            ${{ matrix.asset_name }}
+            ${{ matrix.asset_name }}.sha256
           retention-days: 1
 
   publish-release:
