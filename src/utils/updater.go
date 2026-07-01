@@ -273,7 +273,7 @@ func SelfUpdate(currentVersion string) error {
 
 	fileName := fmt.Sprintf("jar-cart-%s-%s.%s", arch, platform, ext)
 	downloadURL := fmt.Sprintf("https://github.com/Sudhanshu-Ambastha/jar-cart/releases/download/%s/%s", release.TagName, fileName)
-	checksumURL := fmt.Sprintf("https://github.com/Sudhanshu-Ambastha/jar-cart/releases/download/%s/checksums.txt", release.TagName)
+	checksumURL := fmt.Sprintf("https://github.com/Sudhanshu-Ambastha/jar-cart/releases/download/%s/%s.sha256", release.TagName, fileName)
 
 	execPath, err := os.Executable()
 	if err != nil {
@@ -315,10 +315,10 @@ func SelfUpdate(currentVersion string) error {
 	_, _ = io.Copy(h, f)
 	f.Close()
 	computedHash := hex.EncodeToString(h.Sum(nil))
-
-	if !strings.Contains(string(sumContent), computedHash) {
+	expectedHash := strings.ToLower(strings.TrimSpace(string(sumContent)))
+	if expectedHash != computedHash {
 		_ = os.Remove(tmpFile)
-		return fmt.Errorf("security alert: checksum mismatch! binary may be tampered")
+		return fmt.Errorf("security alert: checksum mismatch! Expected %s, got %s", expectedHash, computedHash)
 	}
 
 	if runtime.GOOS == "windows" {

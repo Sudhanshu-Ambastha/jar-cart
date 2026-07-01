@@ -47,6 +47,33 @@ func RunBuild() error {
 	}
 }
 
+func detectMainClassInBin(binDir string) (string, error) {
+	var foundClass string
+	err := filepath.Walk(binDir, func(path string, info os.FileInfo, _ error) error {
+		if !info.IsDir() && strings.HasSuffix(path, ".class") {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil 
+			}
+			
+			if strings.Contains(string(data), "main") && strings.Contains(string(data), "PrintStream") {
+				rel, _ := filepath.Rel(binDir, path)
+				foundClass = strings.ReplaceAll(strings.TrimSuffix(rel, ".class"), string(os.PathSeparator), ".")
+			}
+		}
+		return nil
+	})
+	
+	if err != nil {
+		return "", err
+	}
+	
+	if foundClass == "" {
+		return "", fmt.Errorf("no main method found")
+	}
+	return foundClass, nil
+}
+
 func performManualBuild() error {
 	_, javacPath, _, err := GetJDKPaths()
 	if err != nil {
@@ -57,7 +84,7 @@ func performManualBuild() error {
 		jarPath += ".exe"
 	}
 
-	log.Info("Compiling source tree with managed JDK")
+	log.Info("Compiling source tree")
 	_ = os.MkdirAll("bin", 0755)
 
 	var files []string
@@ -72,27 +99,23 @@ func performManualBuild() error {
 		return fmt.Errorf("no .java files found in src/")
 	}
 
-	classpath := "bin"
-	libFiles, _ := filepath.Glob("lib/*.jar")
-	for _, lib := range libFiles {
-		classpath += string(os.PathListSeparator) + lib
-	}
-
-	err = runCommand(javacPath, append([]string{"-cp", classpath, "-d", "bin"}, files...)...)
+	err = runCommand(javacPath, append([]string{"-cp", "lib/*", "-d", "bin"}, files...)...)
 	if err != nil {
 		return err
 	}
 
+	mainClass, err := detectMainClassInBin("bin")
+	if err != nil {
+		return fmt.Errorf("could not auto-detect Main-Class: %w", err)
+	}
+	log.Info("Detected Main-Class", "class", mainClass)
+
 	log.Info("Generating manifest")
 	_ = os.MkdirAll("dist", 0755)
 	manifestPath := "dist/manifest.txt"
-	manifestContent := "Manifest-Version: 1.0\nMain-Class: App\n"
-	err = os.WriteFile(manifestPath, []byte(manifestContent), 0644)
-	if err != nil {
-		return fmt.Errorf("failed to create manifest: %w", err)
-	}
+	manifestContent := fmt.Sprintf("Manifest-Version: 1.0\nMain-Class: %s\n", mainClass)
+	os.WriteFile(manifestPath, []byte(manifestContent), 0644)
 
-	log.Info("Packaging JAR with managed JDK")
 	return runCommand(jarPath, "cvfm", "dist/app.jar", manifestPath, "-C", "bin", ".")
 }
 
@@ -131,33 +154,47 @@ func getMainClassFromJar(jarPath string) (string, error) {
 	return "", fmt.Errorf("Main-Class attribute not found in manifest")
 }
 
-func RunJar(jarPath string, mainClass string) error {
+func RunJar(target string, mainClass string) error {
 	version, _, javaPath, err := GetJDKPaths()
 	if err != nil {
 		return fmt.Errorf("runtime environment error: %w", err)
 	}
 
-	if mainClass == "" {
-		detected, err := getMainClassFromJar(jarPath)
-		if err != nil {
-			log.Warn("Could not detect main class, falling back to App", "error", err)
-			mainClass = "App"
+	jarPath := target
+	info, err := os.Stat(target)
+	if os.IsNotExist(err) {
+		commonDirs := []string{"dist", "."}
+		for _, dir := range commonDirs {
+			potential := filepath.Join(dir, target)
+			if _, err := os.Stat(potential); err == nil {
+				jarPath = potential
+				break
+			}
+			if !strings.HasSuffix(target, ".jar") {
+				potential = filepath.Join(dir, target+".jar")
+				if _, err := os.Stat(potential); err == nil {
+					jarPath = potential
+					break
+				}
+			}
+		}
+	} else if info.IsDir() {
+		files, _ := filepath.Glob(filepath.Join(target, "*.jar"))
+		if len(files) == 1 {
+			jarPath = files[0]
 		} else {
-			mainClass = detected
+			return fmt.Errorf("directory %s contains multiple or no JARs; please specify one", target)
 		}
 	}
 
-	libFiles, _ := filepath.Glob("lib/*.jar")
-	classpath := jarPath
-	for _, lib := range libFiles {
-		classpath += string(os.PathListSeparator) + lib
-	}
-	args := []string{
-		"--enable-native-access=ALL-UNNAMED",
-		"-cp", classpath,
-		mainClass,
+	if mainClass == "" {
+		detected, err := getMainClassFromJar(jarPath)
+		if err != nil {
+			return fmt.Errorf("could not detect Main-Class in %s: %w", jarPath, err)
+		}
+		mainClass = detected
 	}
 
-	log.Info("Launching JAR", "jdk", version, "main", mainClass)
-	return runCommand(javaPath, args...)
+	log.Info("Launching JAR", "path", jarPath, "jdk", version, "main", mainClass)
+	return runCommand(javaPath, "-cp", jarPath, mainClass)
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 const (
 	ManifestJSON = "jar-cart.json"
 	ManifestXML  = "jar-cart.xml"
+	Version = "v0.1.1"
 )
 
 func printHelp() {
@@ -43,11 +45,11 @@ func main() {
 	logger.SetLevel(log.InfoLevel)
 
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
-		fmt.Println("jar-cart v0.1.0")
+		fmt.Printf("jar-cart %s\n", Version)
 		return
 	}
 
-	utils.AutoCheckUpdate("v0.1.0")
+	utils.AutoCheckUpdate(Version)
 
 	if len(os.Args) < 2 {
 		printHelp()
@@ -87,7 +89,7 @@ func main() {
 
 	switch command {
 	case "self-update":
-        if err := utils.SelfUpdate("v0.1.0"); err != nil {
+        if err := utils.SelfUpdate(Version); err != nil {
             logger.Error("Self-update failed", "error", err)
         }
 
@@ -127,6 +129,18 @@ func main() {
 			os.Exit(1)
 		}
 		utils.SearchMavenCentral(filteredArgs[0])
+
+	case "convert":
+        if len(filteredArgs) < 1 {
+            logger.Error("Convert requires a target format (json/xml).")
+            return
+        }
+        targetFormat := strings.ToLower(filteredArgs[0])
+        if err := utils.ConvertManifest(manifestFile, targetFormat); err != nil {
+            logger.Error("Conversion failed", "error", err)
+        } else {
+            logger.Info("Conversion successful", "to", targetFormat)
+        }
 
 	case "sync":
 		logger.Info("Synchronizing dependencies", "manifest", manifestFile, "frozen", frozen)
@@ -293,6 +307,24 @@ func main() {
 		if err := utils.RunJar(jarPath, mainClass); err != nil {
 			logger.Error("Failed to run JAR", "error", err)
 		}
+	
+	case "decompile":
+        if len(filteredArgs) < 1 {
+            logger.Error("Decompile requires a jar file path.")
+            return
+        }
+        
+        jarPath := filteredArgs[0]
+        decompileCmd := flag.NewFlagSet("decompile", flag.ExitOnError)
+        enginePtr := decompileCmd.String("engine", "vineflower", "Decompiler engine to use (vineflower, cfr, procyon)")
+        decompileCmd.Parse(filteredArgs[1:])
+        logger.Info("Starting decompilation", "jar", jarPath, "engine", *enginePtr)
+        
+        if err := utils.Decompile(jarPath, *enginePtr); err != nil {
+            logger.Error("Decompilation failed", "error", err)
+        } else {
+            logger.Info("Decompilation successful")
+        }
 
 	case "help", "-h", "--help":
 		printHelp()
