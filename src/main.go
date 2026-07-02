@@ -16,13 +16,12 @@ import (
 const (
 	ManifestJSON = "jar-cart.json"
 	ManifestXML  = "jar-cart.xml"
-	Version = "v0.2.1"
+	Version = "v0.2.2"
 )
 
 func printHelp() {
     fmt.Println("🛒 jar-cart — Modern, zero-config package manager & runner for Java\n")
-    t := components.HelpTable()
-    fmt.Println(t.View())
+    fmt.Println(components.HelpTable())
 }
 
 func isPresentInLib(query string) bool {

@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.2] - 2026-07-02
+
+### Fixed
+
+- **UI Clipping:** Fixed viewport clipping issues in the help and search tables.
+- **Visual Polish:** Updated UI borders to use rounded corners and a vibrant neon-blue color scheme for improved readability.
+
 ## [0.2.1] - 2026-07-02
 
 **Fixed**
