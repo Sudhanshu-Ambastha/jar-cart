@@ -1,4 +1,3 @@
-#!/bin/sh
 set -e
 
 BINARY_NAME=$1
@@ -18,6 +17,6 @@ echo "🚀 Setting execution permissions..."
 chmod +x "$BINARY_NAME"
 
 echo "📦 Compressing $BINARY_NAME into $ASSET_NAME..."
-tar -czf "$ASSET_NAME" "$BINARY_NAME"
+tar -czf "$ASSET_NAME" -C "$(dirname "$BINARY_NAME")" "$(basename "$BINARY_NAME")"
 
 echo "✨ Successfully packed $ASSET_NAME"

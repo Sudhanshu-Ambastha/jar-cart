@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.1] - 2026-07-02
+
+**Fixed**
+
+- **CLI Visibility:** `Removed -H=windowsgui` linker flag to ensure proper stdout/stderr attachment to the console on Windows.
+- **Flag Parsing:** Added support for `--v` as a valid alias for the version command.
+
 ## [0.2.0] - 2026-07-02
 
 ### Added

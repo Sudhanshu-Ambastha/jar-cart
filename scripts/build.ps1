@@ -23,7 +23,7 @@ $env:CGO_ENABLED = "0"
 $env:GOOS = "windows"
 $env:GOARCH = "amd64"
 
-go build -ldflags="-s -w -H=windowsgui" -trimpath -o jar-cart.exe ./src
+go build -ldflags="-s -w" -trimpath -o jar-cart.exe ./src
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "✅ Compilation Successful" -ForegroundColor Green

@@ -24,7 +24,7 @@ esac
 
 if [ -z "$VERSION" ]; then
     echo "🔍 Fetching latest version tag..."
-    VERSION=$(curl -s "https://api.github.com/repos/Sudhanshu-Ambastha/jar-cart/releases/latest" | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
+    VERSION=$(curl -fsSLH "Accept: application/vnd.github+json" "https://api.github.com/repos/Sudhanshu-Ambastha/jar-cart/releases/latest" | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
     if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
         echo "❌ Failed to resolve latest version."
         exit 1
@@ -41,20 +41,27 @@ mkdir -p "$TMP_DIR"
 mkdir -p "$INSTALL_DIR"
 
 echo "⚡ Downloading $FILE_NAME ($VERSION)..."
-curl -qLsSf "$URL" -o "$TMP_DIR/$FILE_NAME"
-curl -qLsSf "$CHECKSUM_URL" -o "$TMP_DIR/checksum.sha256"
+if ! curl -fL "$URL" -o "$TMP_DIR/$FILE_NAME"; then
+    echo "❌ Failed to download binary. Check your internet connection."
+    exit 1
+fi
+
+if ! curl -fL "$CHECKSUM_URL" -o "$TMP_DIR/checksum.sha256"; then
+    echo "❌ Failed to download checksum. Check your internet connection."
+    exit 1
+fi
 
 echo "🛡️ Verifying integrity..."
 EXPECTED_HASH=$(cat "$TMP_DIR/checksum.sha256" | tr -d '[:space:]')
-ACTUAL_HASH=""
 
 if command -v sha256sum >/dev/null 2>&1; then
     ACTUAL_HASH=$(sha256sum "$TMP_DIR/$FILE_NAME" | awk '{print $1}')
 elif command -v shasum >/dev/null 2>&1; then
     ACTUAL_HASH=$(shasum -a 256 "$TMP_DIR/$FILE_NAME" | awk '{print $1}')
 else
-    echo "⚠️ Warning: No checksum tool found. Skipping verification."
-    ACTUAL_HASH="$EXPECTED_HASH"
+    echo "❌ Error: No checksum tool (sha256sum/shasum) found. Installation aborted for security."
+    rm -rf "$TMP_DIR"
+    exit 1
 fi
 
 if [ "$ACTUAL_HASH" != "$EXPECTED_HASH" ]; then

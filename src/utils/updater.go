@@ -18,8 +18,15 @@ import (
 	"github.com/charmbracelet/log"
 )
 
+type Asset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+	Digest             string `json:"digest"`
+}
+
 type GitHubRelease struct {
-	TagName string `json:"tag_name"`
+	TagName string  `json:"tag_name"`
+	Assets  []Asset `json:"assets"`
 }
 
 func unzipBinary(src, destDir string) error {
@@ -272,8 +279,12 @@ func unzipJdkArchive(src, dest string) error {
 func SelfUpdate(currentVersion string) error {
 	logger := log.New(os.Stderr)
 	logger.Info("Checking GitHub for latest jar-cart CLI release...")
-
-	resp, err := http.Get("https://api.github.com/repos/Sudhanshu-Ambastha/jar-cart/releases/latest")
+	
+	client := &http.Client{Timeout: 30 * time.Second}
+	req, _ := http.NewRequest("GET", "https://api.github.com/repos/Sudhanshu-Ambastha/jar-cart/releases/latest", nil)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to fetch live metadata: %v", err)
 	}
@@ -289,9 +300,6 @@ func SelfUpdate(currentVersion string) error {
 		return nil
 	}
 
-	logger.Info("New version found, preparing update", "latest", release.TagName)
-
-	// Cross-platform mapping
 	platform := runtime.GOOS
 	ext := "tar.gz"
 	if platform == "windows" {
@@ -303,51 +311,84 @@ func SelfUpdate(currentVersion string) error {
 	}
 
 	fileName := fmt.Sprintf("jar-cart-%s-%s.%s", arch, platform, ext)
-	downloadURL := fmt.Sprintf("https://github.com/Sudhanshu-Ambastha/jar-cart/releases/download/%s/%s", release.TagName, fileName)
-	checksumURL := downloadURL + ".sha256"
+	var downloadURL string
+	var expectedHash string
 
+	for _, asset := range release.Assets {
+		if asset.Name == fileName {
+			downloadURL = asset.BrowserDownloadURL
+			expectedHash = strings.TrimPrefix(asset.Digest, "sha256:")
+			break
+		}
+	}
+
+	if downloadURL == "" {
+		return fmt.Errorf("could not find release asset for %s", fileName)
+	}
+
+	logger.Info("New version found, preparing update", "latest", release.TagName)
 	execPath, _ := os.Executable()
 	tmpFile := execPath + ".tmp"
 	oldFile := execPath + ".old"
-
-	respBin, _ := http.Get(downloadURL)
+	respBin, err := client.Get(downloadURL)
+	if err != nil {
+		return fmt.Errorf("network error during download: %v", err)
+	}
 	defer respBin.Body.Close()
-	out, _ := os.Create(tmpFile)
+
+	if respBin.StatusCode != http.StatusOK {
+		return fmt.Errorf("download failed: server returned status %s", respBin.Status)
+	}
+
+	out, err := os.Create(tmpFile)
+	if err != nil {
+		return err
+	}
 	io.Copy(out, respBin.Body)
 	out.Close()
 
-	respSum, _ := http.Get(checksumURL)
-	defer respSum.Body.Close()
-	sumContent, _ := io.ReadAll(respSum.Body)
-	
 	f, _ := os.Open(tmpFile)
 	h := sha256.New()
 	io.Copy(h, f)
 	f.Close()
 	
-	if hex.EncodeToString(h.Sum(nil)) != strings.ToLower(strings.TrimSpace(string(sumContent))) {
+	if hex.EncodeToString(h.Sum(nil)) != strings.ToLower(expectedHash) {
 		os.Remove(tmpFile)
-		return fmt.Errorf("checksum mismatch")
+		return fmt.Errorf("security alert: checksum mismatch! (file corrupted or intercepted)")
 	}
 
 	if runtime.GOOS == "windows" {
 		extractDir := filepath.Join(os.TempDir(), "jar-cart-update")
+		os.RemoveAll(extractDir)
 		os.MkdirAll(extractDir, 0755)
-		unzipBinary(tmpFile, extractDir)
+		
+		if err := unzipBinary(tmpFile, extractDir); err != nil {
+			return fmt.Errorf("failed to extract binary: %v", err)
+		}
 		
 		newExe := filepath.Join(extractDir, "jar-cart.exe")
-		os.Rename(execPath, oldFile)
-		err = os.Rename(newExe, execPath)
-		if err != nil {
-			cmd := fmt.Sprintf("timeout /t 1 && move /y \"%s\" \"%s\"", newExe, execPath)
-			exec.Command("cmd", "/c", cmd).Start()
+		os.Remove(oldFile)
+		if err := os.Rename(execPath, oldFile); err != nil {
+			return fmt.Errorf("failed to backup current binary: %v", err)
 		}
+		
+		if err := os.Rename(newExe, execPath); err != nil {
+			cmd := fmt.Sprintf("move /y \"%s\" \"%s\"", newExe, execPath)
+			if err := exec.Command("cmd", "/c", cmd).Start(); err != nil {
+				return fmt.Errorf("critical: update failed to apply: %v", err)
+			}
+		}
+		os.RemoveAll(extractDir)
 	} else {
 		os.Rename(execPath, oldFile)
-		os.Rename(tmpFile, execPath)
+		if err := os.Rename(tmpFile, execPath); err != nil {
+			return err
+		}
 		os.Chmod(execPath, 0755)
 	}
 
+	os.Remove(tmpFile)
+	os.Remove(oldFile)
 	logger.Info("Successfully updated jar-cart", "version", release.TagName)
 	return nil
 }

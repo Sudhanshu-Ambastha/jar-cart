@@ -16,7 +16,7 @@ import (
 const (
 	ManifestJSON = "jar-cart.json"
 	ManifestXML  = "jar-cart.xml"
-	Version = "v0.2.0"
+	Version = "v0.2.1"
 )
 
 func printHelp() {
@@ -44,9 +44,12 @@ func main() {
 	logger := log.New(os.Stderr)
 	logger.SetLevel(log.InfoLevel)
 
-	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
-		fmt.Printf("jar-cart %s\n", Version)
-		return
+	if len(os.Args) > 1 {
+		arg := strings.ToLower(os.Args[1])
+		if arg == "--version" || arg == "-v" {
+			fmt.Printf("jar-cart %s\n", Version)
+			return
+		}
 	}
 
 	utils.AutoCheckUpdate(Version)

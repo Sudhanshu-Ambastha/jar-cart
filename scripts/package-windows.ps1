@@ -16,8 +16,4 @@ if ($CertBase64 -and $CertPassword) {
     Remove-Item $pfxPath -Force
 }
 
-$hash = Get-FileHash -Path $BinaryName -Algorithm SHA256
-$hash.Hash | Out-File "checksums.txt" -Encoding utf8
-
-Compress-Archive -Path $BinaryName, "checksums.txt" -DestinationPath $AssetName -Force
-Remove-Item "checksums.txt"
+Compress-Archive -Path $BinaryName -DestinationPath $AssetName -Force
