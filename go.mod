@@ -13,6 +13,7 @@ require (
 	github.com/charmbracelet/log v1.0.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/manifoldco/promptui v0.9.0
+	golang.org/x/mod v0.37.0
 )
 
 require (

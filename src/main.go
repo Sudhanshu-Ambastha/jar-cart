@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Sudhanshu-Ambastha/jar-cart/src/models"
 	"github.com/Sudhanshu-Ambastha/jar-cart/src/ui/components"
 	"github.com/Sudhanshu-Ambastha/jar-cart/src/utils"
 	"github.com/charmbracelet/log"
@@ -16,7 +15,7 @@ import (
 const (
 	ManifestJSON = "jar-cart.json"
 	ManifestXML  = "jar-cart.xml"
-	Version = "v0.2.2"
+	Version = "v0.2.3"
 )
 
 func printHelp() {
@@ -60,7 +59,7 @@ func main() {
 
 	command := os.Args[1]
 	manifestFile := ManifestJSON
-	if _, err := os.Stat(ManifestXML); err == nil {
+	if _, err := os.Stat(ManifestXML); err == nil && os.Getenv("JAR_CART_XML") == "1" {
 		manifestFile = ManifestXML
 	}
 
@@ -91,9 +90,27 @@ func main() {
 
 	switch command {
 	case "self-update":
-        if err := utils.SelfUpdate(Version); err != nil {
-            logger.Error("Self-update failed", "error", err)
-        }
+		if len(filteredArgs) > 0 {
+			targetVersion := filteredArgs[0]
+
+			logger.Info("Switching version...", "target", targetVersion)
+
+			if err := utils.DowngradeTo(targetVersion); err != nil {
+				logger.Error("Version switch failed", "error", err)
+				return
+			}
+
+			logger.Info("Version switched successfully", "version", targetVersion)
+			return
+		}
+
+		if err := utils.SelfUpdate(Version); err != nil {
+			logger.Error("Self-update failed", "error", err)
+			return
+		}
+
+		logger.Info("Successfully updated to the latest release.")
+		return
 
 	case "init":
 		projectName := "."
@@ -125,7 +142,20 @@ func main() {
 		if err := utils.ExecuteScaffold(targetDir, projectName, "Vanilla", "no-build", "Java", javaVersion, manifestType); err != nil {
 			logger.Error("Scaffold failed", "error", err)
 		} else {
-			_ = utils.GenerateLockFile(targetDir, []models.Dependency{})
+			manifestName := ManifestJSON
+			if manifestType == "xml" {
+				manifestName = ManifestXML
+			}
+
+			manifestPath := filepath.Join(targetDir, manifestName)
+
+			manifest, err := utils.LoadManifest(manifestPath)
+			if err != nil {
+				logger.Warn("Failed to load generated manifest", "error", err)
+			} else if err := utils.GenerateLockFile(targetDir, manifest); err != nil {
+				logger.Warn("Failed to generate lockfile", "error", err)
+			}
+
 			logger.Info("Project ready!")
 		}
 
@@ -196,6 +226,13 @@ func main() {
         }
 
 	case "sync":
+		if _, err := os.Stat(manifestFile); os.IsNotExist(err) {
+			logger.Fatal(
+				"Project manifest not found",
+				"expected", "jar-cart.json or jar-cart.xml",
+				"hint", "Run 'jar-cart init'",
+			)
+		}
 		logger.Info("Synchronizing dependencies", "manifest", manifestFile, "frozen", frozen)
 		manifest, err := utils.LoadManifest(manifestFile)
 		if err != nil {
@@ -209,7 +246,12 @@ func main() {
 			logger.Fatal("Java provisioning failed", "error", err)
 		}
 
-		lockEntries, err := utils.ResolveParallelDependencies(".", manifest.Dependencies, true)
+		shouldResolve := utils.IsFullResolution(manifest)
+		lockEntries, err := utils.ResolveParallelDependencies(
+			".",
+			manifest.Dependencies,
+			shouldResolve,
+		)
 		if err != nil {
 			logger.Warn("Sync completed with some errors", "error", err)
 		}

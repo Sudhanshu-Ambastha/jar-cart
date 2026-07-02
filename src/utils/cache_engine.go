@@ -119,7 +119,7 @@ func ResolveParallelDependencies(projectDir string, dependencies []models.Depend
 	globalCacheDir := filepath.Join(homeDir, ".jar-cart", "cache")
 
 	fullDepMap := make(map[string]models.Dependency)
-	queue := dependencies
+	queue := append([]models.Dependency{}, dependencies...)
 
 	for len(queue) > 0 {
 		dep := queue[0]
@@ -128,7 +128,6 @@ func ResolveParallelDependencies(projectDir string, dependencies []models.Depend
 		
 		if _, exists := fullDepMap[key]; !exists {
 			fullDepMap[key] = dep
-			
 			if resolveTransitives && IsOnline() {
 				transitives, err := GetTransitiveDependencies(dep)
 				if err == nil {
@@ -136,6 +135,8 @@ func ResolveParallelDependencies(projectDir string, dependencies []models.Depend
 				} else {
 					log.Warn("Could not resolve transitives (POM missing)", "dep", key)
 				}
+			} else if !resolveTransitives {
+				log.Debug("Shallow mode: Skipping transitive resolution", "dep", key)
 			}
 		}
 	}
@@ -166,6 +167,7 @@ func ResolveParallelDependencies(projectDir string, dependencies []models.Depend
 	close(tasksChan)
 	wg.Wait()
 	close(resultsChan)
+	
 	lockEntries := make(map[string]LockEntry)
 	for res := range resultsChan {
 		if res.Error != nil {

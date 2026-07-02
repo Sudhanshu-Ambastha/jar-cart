@@ -16,7 +16,10 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
+	"golang.org/x/mod/semver"
 )
+
+const MinSupportedVersion = "v0.2.1"
 
 type Asset struct {
 	Name               string `json:"name"`
@@ -27,6 +30,46 @@ type Asset struct {
 type GitHubRelease struct {
 	TagName string  `json:"tag_name"`
 	Assets  []Asset `json:"assets"`
+}
+
+type UpdateCache struct {
+	LatestVersion string    `json:"latest_version"`
+	CheckedAt     time.Time `json:"checked_at"`
+}
+
+type progressWriter struct {
+	total     int64
+	current   int64
+	lastPrint time.Time
+}
+
+func normalizeVersion(version string) string {
+	if version == "" {
+		return ""
+	}
+
+	if !strings.HasPrefix(version, "v") {
+		version = "v" + version
+	}
+
+	return version
+}
+
+func ValidateTargetVersion(version string) error {
+	version = normalizeVersion(version)
+
+	if !semver.IsValid(version) {
+		return fmt.Errorf("invalid version: %s", version)
+	}
+
+	if semver.Compare(version, MinSupportedVersion) < 0 {
+		return fmt.Errorf(
+			"versions older than %s are no longer supported",
+			MinSupportedVersion,
+		)
+	}
+
+	return nil
 }
 
 func unzipBinary(src, destDir string) error {
@@ -61,43 +104,90 @@ func unzipBinary(src, destDir string) error {
 	return fmt.Errorf("no executable found in archive")
 }
 
-func AutoCheckUpdate(currentVersion string) {
+func saveLatestVersionCache(version string) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return
 	}
-	timestampFile := filepath.Join(homeDir, ".jar-cart", ".last_update_check")
 
-	if info, err := os.Stat(timestampFile); err == nil {
-		if time.Since(info.ModTime()) < 24*time.Hour {
-			return
-		}
+	cacheDir := filepath.Join(homeDir, ".jar-cart")
+	_ = os.MkdirAll(cacheDir, 0755)
+
+	cache := UpdateCache{
+		LatestVersion: version,
+		CheckedAt:     time.Now(),
 	}
 
-	_ = os.MkdirAll(filepath.Dir(timestampFile), 0755)
-	_ = os.WriteFile(timestampFile, []byte(time.Now().String()), 0644)
+	data, err := json.MarshalIndent(cache, "", "  ")
+	if err != nil {
+		return
+	}
 
-	go func() {
-		resp, err := http.Get("https://api.github.com/repos/Sudhanshu-Ambastha/jar-cart/releases/latest")
-		if err != nil {
-			return
-		}
-		defer resp.Body.Close()
-
-		var release GitHubRelease
-		if err := json.NewDecoder(resp.Body).Decode(&release); err == nil {
-			if release.TagName != currentVersion {
-				log.Info("A new version is available", "latest", release.TagName, "current", currentVersion)
-				log.Info("Run 'jar-cart self-update' to pull the latest optimizations")
-			}
-		}
-	}()
+	_ = os.WriteFile(filepath.Join(cacheDir, "latest_version.json"), data, 0644)
 }
 
-type progressWriter struct {
-	total     int64
-	current   int64
-	lastPrint time.Time
+func loadLatestVersionCache() (*UpdateCache, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := os.ReadFile(filepath.Join(homeDir, ".jar-cart", "latest_version.json"))
+	if err != nil {
+		return nil, err
+	}
+
+	var cache UpdateCache
+	if err := json.Unmarshal(data, &cache); err != nil {
+		return nil, err
+	}
+
+	return &cache, nil
+}
+
+func AutoCheckUpdate(currentVersion string) (bool, string) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return false, ""
+	}
+
+	cacheDir := filepath.Join(homeDir, ".jar-cart")
+	_ = os.MkdirAll(cacheDir, 0755)
+
+	cache, err := loadLatestVersionCache()
+	if err != nil {
+		cache = nil
+	}
+
+	timestampFile := filepath.Join(cacheDir, ".last_update_check")
+	if info, err := os.Stat(timestampFile); err != nil || time.Since(info.ModTime()) >= 24*time.Hour {
+		_ = os.WriteFile(timestampFile, []byte(time.Now().Format(time.RFC3339)), 0644)
+
+		go func() {
+			release, err := FetchReleaseMetadata("latest")
+			if err != nil {
+				return
+			}
+			saveLatestVersionCache(release.TagName)
+		}()
+	}
+
+	if cache == nil || cache.LatestVersion == "" {
+		return false, ""
+	}
+
+	current := normalizeVersion(currentVersion)
+	latest := normalizeVersion(cache.LatestVersion)
+
+	if !semver.IsValid(current) || !semver.IsValid(latest) {
+		return false, ""
+	}
+
+	if semver.Compare(current, latest) < 0 {
+		return true, latest
+	}
+
+	return false, ""
 }
 
 func (pw *progressWriter) Write(p []byte) (int, error) {
@@ -276,44 +366,34 @@ func unzipJdkArchive(src, dest string) error {
 	return nil
 }
 
-func SelfUpdate(currentVersion string) error {
-	logger := log.New(os.Stderr)
-	logger.Info("Checking GitHub for latest jar-cart CLI release...")
-	
+func FetchReleaseMetadata(tag string) (GitHubRelease, error) {
+	url := "https://api.github.com/repos/Sudhanshu-Ambastha/jar-cart/releases/latest"
+	if tag != "latest" {
+		url = fmt.Sprintf("https://api.github.com/repos/Sudhanshu-Ambastha/jar-cart/releases/tags/%s", tag)
+	}
+
 	client := &http.Client{Timeout: 30 * time.Second}
-	req, _ := http.NewRequest("GET", "https://api.github.com/repos/Sudhanshu-Ambastha/jar-cart/releases/latest", nil)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	
-	resp, err := client.Do(req)
+	resp, err := client.Get(url)
 	if err != nil {
-		return fmt.Errorf("failed to fetch live metadata: %v", err)
+		return GitHubRelease{}, err
 	}
 	defer resp.Body.Close()
 
 	var release GitHubRelease
 	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return fmt.Errorf("failed to parse release layout: %v", err)
+		return GitHubRelease{}, err
 	}
+	return release, nil
+}
 
-	if release.TagName == currentVersion {
-		logger.Info("You are already on the latest version", "version", currentVersion)
-		return nil
-	}
-
-	platform := runtime.GOOS
+func DownloadAndVerify(release GitHubRelease, tmpFile string) error {
+	platform, arch := runtime.GOOS, "x86_64"
+	if runtime.GOARCH == "arm64" { arch = "aarch64" }
 	ext := "tar.gz"
-	if platform == "windows" {
-		ext = "zip"
-	}
-	arch := "x86_64"
-	if runtime.GOARCH == "arm64" {
-		arch = "aarch64"
-	}
+	if platform == "windows" { ext = "zip" }
 
 	fileName := fmt.Sprintf("jar-cart-%s-%s.%s", arch, platform, ext)
-	var downloadURL string
-	var expectedHash string
-
+	var downloadURL, expectedHash string
 	for _, asset := range release.Assets {
 		if asset.Name == fileName {
 			downloadURL = asset.BrowserDownloadURL
@@ -323,74 +403,141 @@ func SelfUpdate(currentVersion string) error {
 	}
 
 	if downloadURL == "" {
-		return fmt.Errorf("could not find release asset for %s", fileName)
+		return fmt.Errorf("no matching asset found for %s", fileName)
 	}
 
-	logger.Info("New version found, preparing update", "latest", release.TagName)
-	execPath, _ := os.Executable()
-	tmpFile := execPath + ".tmp"
-	oldFile := execPath + ".old"
-	respBin, err := client.Get(downloadURL)
-	if err != nil {
-		return fmt.Errorf("network error during download: %v", err)
+	resp, err := http.Get(downloadURL)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download failed")
 	}
-	defer respBin.Body.Close()
-
-	if respBin.StatusCode != http.StatusOK {
-		return fmt.Errorf("download failed: server returned status %s", respBin.Status)
-	}
+	defer resp.Body.Close()
 
 	out, err := os.Create(tmpFile)
-	if err != nil {
-		return err
-	}
-	io.Copy(out, respBin.Body)
-	out.Close()
+	if err != nil { return err }
+	defer out.Close()
+	
+	if _, err = io.Copy(out, resp.Body); err != nil { return err }
 
 	f, _ := os.Open(tmpFile)
+	defer f.Close()
 	h := sha256.New()
 	io.Copy(h, f)
-	f.Close()
-	
+
 	if hex.EncodeToString(h.Sum(nil)) != strings.ToLower(expectedHash) {
-		os.Remove(tmpFile)
-		return fmt.Errorf("security alert: checksum mismatch! (file corrupted or intercepted)")
+		return fmt.Errorf("security alert: checksum mismatch")
 	}
+	return nil
+}
+
+func ApplyBinarySwap(tmpFile string) error {
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to determine executable path: %w", err)
+	}
+
+	oldFile := execPath + ".old"
 
 	if runtime.GOOS == "windows" {
 		extractDir := filepath.Join(os.TempDir(), "jar-cart-update")
-		os.RemoveAll(extractDir)
-		os.MkdirAll(extractDir, 0755)
-		
+		_ = os.RemoveAll(extractDir)
+
+		if err := os.MkdirAll(extractDir, 0755); err != nil {
+			return fmt.Errorf("failed to create extraction directory: %w", err)
+		}
+		defer os.RemoveAll(extractDir)
 		if err := unzipBinary(tmpFile, extractDir); err != nil {
-			return fmt.Errorf("failed to extract binary: %v", err)
-		}
-		
-		newExe := filepath.Join(extractDir, "jar-cart.exe")
-		os.Remove(oldFile)
-		if err := os.Rename(execPath, oldFile); err != nil {
-			return fmt.Errorf("failed to backup current binary: %v", err)
-		}
-		
-		if err := os.Rename(newExe, execPath); err != nil {
-			cmd := fmt.Sprintf("move /y \"%s\" \"%s\"", newExe, execPath)
-			if err := exec.Command("cmd", "/c", cmd).Start(); err != nil {
-				return fmt.Errorf("critical: update failed to apply: %v", err)
-			}
-		}
-		os.RemoveAll(extractDir)
-	} else {
-		os.Rename(execPath, oldFile)
-		if err := os.Rename(tmpFile, execPath); err != nil {
 			return err
 		}
-		os.Chmod(execPath, 0755)
+
+		newExe := filepath.Join(extractDir, "jar-cart.exe")
+		_ = os.Remove(oldFile)
+
+		if err := os.Rename(execPath, oldFile); err != nil {
+			return fmt.Errorf("failed to backup current executable: %w", err)
+		}
+
+		if err := os.Rename(newExe, execPath); err != nil {
+			cmd := exec.Command("cmd", "/C",
+				fmt.Sprintf(`move /Y "%s" "%s"`, newExe, execPath))
+
+			if err := cmd.Run(); err != nil {
+				_ = os.Rename(oldFile, execPath)
+				return fmt.Errorf("failed to replace executable: %w", err)
+			}
+		}
+
+		cleanup := exec.Command(
+			"cmd",
+			"/C",
+			fmt.Sprintf(`ping 127.0.0.1 -n 3 > nul && del /F /Q "%s"`, oldFile),
+		)
+
+		_ = cleanup.Start()
+
+	} else {
+		_ = os.Remove(oldFile)
+
+		if err := os.Rename(execPath, oldFile); err != nil {
+			return fmt.Errorf("failed to backup executable: %w", err)
+		}
+
+		if err := os.Rename(tmpFile, execPath); err != nil {
+			_ = os.Rename(oldFile, execPath)
+			return fmt.Errorf("failed to install updated executable: %w", err)
+		}
+
+		if err := os.Chmod(execPath, 0755); err != nil {
+			return fmt.Errorf("failed to set executable permissions: %w", err)
+		}
+
+		if err := os.Remove(oldFile); err != nil {
+			log.Warn("Could not remove backup executable", "file", oldFile, "error", err)
+		}
 	}
 
-	os.Remove(tmpFile)
-	os.Remove(oldFile)
-	logger.Info("Successfully updated jar-cart", "version", release.TagName)
 	return nil
+}
+
+func PerformUpdate(tag string) error {
+	release, err := FetchReleaseMetadata(tag)
+	if err != nil { return err }
+	
+	tmpFile := filepath.Join(os.TempDir(), "jar-cart.tmp")
+	defer os.Remove(tmpFile)
+
+	if err := DownloadAndVerify(release, tmpFile); err != nil { return err }
+	return ApplyBinarySwap(tmpFile)
+}
+
+func SelfUpdate(currentVersion string) error {
+	logger := log.New(os.Stderr)
+	logger.Info("Checking GitHub for latest release...")
+
+	release, err := FetchReleaseMetadata("latest")
+	if err != nil {
+		return err
+	}
+
+	c := currentVersion
+	if !strings.HasPrefix(c, "v") { c = "v" + c }
+	l := release.TagName
+	if !strings.HasPrefix(l, "v") { l = "v" + l }
+
+	if semver.Compare(c, l) >= 0 {
+		logger.Info("Already on the latest version", "version", currentVersion)
+		return nil
+	}
+
+	logger.Info("Updating to new version", "version", release.TagName)
+	return PerformUpdate(release.TagName)
+}
+
+func DowngradeTo(targetVersion string) error {
+    if err := ValidateTargetVersion(targetVersion); err != nil {
+        return err
+    }
+
+    return PerformUpdate(targetVersion)
 }
 
 func JdkUpdate(targetVersion string) error {

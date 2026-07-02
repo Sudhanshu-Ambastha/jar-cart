@@ -21,6 +21,14 @@ func LoadManifest(filePath string) (*models.Manifest, error) {
 	return adapter.Load(filePath)
 }
 
+func IsFullResolution(manifest *models.Manifest) bool {
+	mode := strings.ToLower(strings.TrimSpace(manifest.ResolutionDepth))
+	if mode == "" {
+		mode = "full"
+	}
+	return mode == "full"
+}
+
 func ParseManifest(filePath string) ([]models.Dependency, error) {
 	manifest, err := LoadManifest(filePath)
 	if err != nil {
@@ -29,9 +37,21 @@ func ParseManifest(filePath string) ([]models.Dependency, error) {
 	return manifest.Dependencies, nil
 }
 
-func GenerateLockFile(projectDir string, deps []models.Dependency) error {
+func GenerateLockFile(projectDir string, manifest *models.Manifest) error {
 	log.Info("Generating/Updating lockfile...")
-	lockEntries, err := ResolveParallelDependencies(projectDir, deps, true)
+	shouldResolve := IsFullResolution(manifest)
+	mode := strings.ToLower(strings.TrimSpace(manifest.ResolutionDepth))
+	if mode == "" {
+		mode = "full"
+	}
+
+	log.Info("Lockfile resolution mode", "mode", mode)
+
+	lockEntries, err := ResolveParallelDependencies(
+		projectDir,
+		manifest.Dependencies,
+		shouldResolve,
+	)
 	if err != nil {
 		return err
 	}
@@ -41,6 +61,7 @@ func GenerateLockFile(projectDir string, deps []models.Dependency) error {
 		GeneratedAt:  time.Now().Format(time.RFC3339),
 		Dependencies: lockEntries,
 	}
+
 	return WriteLockFile(projectDir, &lock)
 }
 
@@ -111,7 +132,7 @@ func AddDependency(manifestPath, rawCoordinate string, isDirect bool, libDir str
 	}
 
 	log.Info("Synchronizing dependency", "dep", group+":"+lib)
-	shouldResolve := (manifest.ResolutionDepth == "full")
+	shouldResolve := (IsFullResolution(manifest))
 	
 	if _, err := ResolveParallelDependencies(".", []models.Dependency{newDep}, shouldResolve); err != nil {
 		return err
@@ -152,8 +173,12 @@ func RemoveDependency(manifestPath, rawCoordinate string, libDir string) error {
         return err
     }
 
-    manifest, _ = adapter.Load(manifestPath)
-    return GenerateLockFile(".", manifest.Dependencies)
+    manifest, err = adapter.Load(manifestPath)
+	if err != nil {
+		return fmt.Errorf("failed to reload manifest: %w", err)
+	}
+
+	return GenerateLockFile(".", manifest)
 }
 
 func RunSync(projectDir string) error {
@@ -162,7 +187,7 @@ func RunSync(projectDir string) error {
 		return fmt.Errorf("failed to resolve absolute path: %v", err)
 	}
 
-	manifestFiles := []string{"jar-cart.json", "jar-cart.xml", "build.gradle", "pom.xml"}
+	manifestFiles := []string{"jar-cart.json", "jar-cart.xml"}
 	var manifestPath string
 	for _, f := range manifestFiles {
 		fullPath := filepath.Join(absDir, f)
@@ -173,7 +198,7 @@ func RunSync(projectDir string) error {
 	}
 
 	if manifestPath == "" {
-		return fmt.Errorf("no manifest file found in %s", absDir)
+		return fmt.Errorf("not found the jar-cart.json/jar-cart.xml")
 	}
 
 	log.Info("Synchronizing via", "manifest", manifestPath)
@@ -182,7 +207,9 @@ func RunSync(projectDir string) error {
 		return fmt.Errorf("load manifest error: %v", err)
 	}
 
-	shouldResolve := (manifest.ResolutionDepth == "full")
+	shouldResolve := (IsFullResolution(manifest))
+	log.Info("Resolution mode", "mode", manifest.ResolutionDepth)
+
 	lockEntries, err := ResolveParallelDependencies(absDir, manifest.Dependencies, shouldResolve)
 	if err != nil {
 		return fmt.Errorf("resolve error: %v", err)

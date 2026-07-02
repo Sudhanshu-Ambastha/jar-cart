@@ -1,15 +1,15 @@
 {
   "FixedFileInfo": {
-    "FileVersion": { "Major": 0, "Minor": 2, "Patch": 1, "Build": 0 },
-    "ProductVersion": { "Major": 0, "Minor": 2, "Patch": 1, "Build": 0 }
+    "FileVersion": {"Major": 0, "Minor": 2, "Patch": 3, "Build": 0},
+    "ProductVersion": {"Major": 0,"Minor": 2,"Patch": 3,"Build": 0}
   },
   "StringFileInfo": {
     "FileDescription": "jar-cart: Modern Java Package Manager & Decompiler Toolkit",
-    "FileVersion": "0.2.1",
+    "FileVersion": "0.2.3",
     "InternalName": "jar-cart",
     "LegalCopyright": "Copyright 2026 Sudhanshu Ambastha",
     "OriginalFilename": "jar-cart.exe",
     "ProductName": "jar-cart",
-    "ProductVersion": "0.2.1"
+    "ProductVersion": "0.2.3"
   }
 }

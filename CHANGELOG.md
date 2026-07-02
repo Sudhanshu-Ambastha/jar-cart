@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.3] - 2026-07-03
+
+### Added
+
+- **Version Lifecycle Management**: Added support for switching to specific released versions using `jar-cart self-update <version>`.
+- **Minimum Supported Version**: Enforced a minimum supported version (`v0.2.1`) to prevent downgrading to deprecated or unsupported releases.
+- **Configurable Dependency Resolution**: Introduced `resolutionDepth` with `shallow` and `full` modes, allowing projects to install only direct dependencies or the complete transitive dependency graph.
+
+### Improved
+
+- **Unified Update Pipeline**: Consolidated download, checksum verification, and OS-aware binary replacement into a single safe update workflow with rollback protection.
+- **Semantic Versioning**: Adopted `golang.org/x/mod/semver` for reliable version validation, comparison, and lifecycle management.
+- **Automatic Update Check**: Package manager now checks for updates in the background and displays a non-blocking notification when a newer version is available.
+- **Dependency Resolution Consistency**: Standardized dependency resolution logic across `add`, `sync`, and `lockfile` generation using a single unified rule (`IsFullResolution`), ensuring consistent behavior for `shallow` and `full` modes throughout the system.
+- **Project Validation**: Commands that require a project manifest now fail immediately when neither `jar-cart.json` nor `jar-cart.xml` is present, preventing unintended dependency resolution and misleading follow-up errors.
+- **Windows Update Stability**: Improved executable replacement with stronger error handling, rollback behaviour, and automatic clean-up of temporary update artifacts after successful self-updates.
+
 ## [0.2.2] - 2026-07-02
 
 ### Fixed
