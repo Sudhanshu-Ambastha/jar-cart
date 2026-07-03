@@ -18,33 +18,48 @@ _Note: This is version ![Version](https://img.shields.io/github/v/release/Sudhan
 
 ### ⚡ Performance & Efficiency
 
-- **CAS Architecture:** Artifacts are downloaded once and stored globally.
-- **Hard-Linking:** Instant dependency linking; no duplicated disk usage across projects.
+- **Content Addressable Storage (CAS):** Artifacts are downloaded once and shared across all projects.
+- **Hard-Linking:** Dependencies are linked instantly into projects without duplicating disk usage.
 
 ### ☕ Isolated Runtimes
 
-- **Project-Level Version Locking:** Specify any JDK version in `jar-cart.json`. `jar-cart` handles the provisioning, isolation, and version-switching automatically, ensuring your project always runs on the exact runtime it expects.
+- **Project-Level Version Locking:** Pin a specific JDK version in `jar-cart.json`. `jar-cart` automatically provisions, isolates, and manages the required runtime, ensuring every project executes with the exact Java version it was developed against.
 
 ### 🛠 Reverse Engineering & Patching
 
-- **Automated Decompilation:** Seamlessly extract source code from binary JARs. `jar-cart` automatically provisions, caches, and manages decompiler engines (Vineflower, CFR, Procyon) so you don't have to.
+- **Integrated Decompilation:** Automatically provisions and manages Vineflower, CFR, and Procyon so JARs can be decompiled without any manual setup.
 
-- **Full-Circle Rebuilds:** Decompiled code is "compilation-ready." Effortlessly patch, modify, and rebuild binary-only projects back into valid, executable JARs.
+- **Decompiler-to-Build Workflow:** Decompiled projects can be modified, rebuilt, and packaged back into executable JARs using the normal `jar-cart` toolchain.
 
 ### 🧠 Intelligent CLI Experience
 
-- **Auto-Main Class Detection:** Forget manual manifest configuration. `jar-cart` intelligently scans compiled binaries to locate the `main` method, ensuring your JARs are executable the moment they are built.
+- **Automatic Entry Point Detection:** `jar-cart` automatically locates the application's `main()` class, eliminating manual manifest configuration for most projects.
 
-- **Smart Path Resolution:** `run-jar` understands your project context—simply provide the JAR name or directory, and jar-cart resolves the path and dependencies automatically.
+- **Flexible Target Resolution:** `run` and `run-jar` accept source files, directories, class names, or JAR names and automatically resolve the correct execution target.
+
+- **NPM-style Argument Forwarding:** Everything after `--` is forwarded directly to the Java application, allowing runtime arguments without conflicting with `jar-cart`'s own CLI options.
+
+  ```sh
+  jar-cart run src -- --server
+  jar-cart run App -- --port 8080 --debug
+  jar-cart run-jar app.jar -- --profile production
+  jar-cart watch src -- --server
+  ```
 
 ### 📜 Custom Script Runner
 
-- **NPM-style Automation:** Define project-specific command aliases (e.g., `test`, `build`, `hello`) in your `jar-cart.json`. `jar-cart` handles the lifecycle, including `pre-` and `post-` hook execution automatically.
+- **Lifecycle Scripts:** Define reusable commands (such as `build`, `test`, or `lint`) in `jar-cart.json`. `jar-cart` automatically executes matching `pre-` and `post-` lifecycle hooks, similar to npm.
 
 ### 🔒 Security & Reliability
 
-- **SHA256 Verification:** Integrity checks for every artifact.
-- **Atomic Operations:** Prevents corruption from interrupted downloads.
+- **SHA256 Verification:** Downloaded artifacts and release binaries are verified before use.
+- **Atomic Operations:** Prevents partially downloaded artifacts or interrupted updates from corrupting the local installation.
+
+### 🚀 Developer Experience
+
+- **Hot Reload Development:** `watch` automatically recompiles and restarts applications whenever Java source files change.
+- **Persistent Runtime Arguments:** Forwarded application arguments are preserved across every automatic restart.
+- **Consistent CLI:** `run`, `run-jar`, and `watch` all follow the same npm-style argument forwarding syntax.
 
 ### 🧩 Zero Configuration
 
@@ -59,11 +74,13 @@ Works out of the box with `jar-cart.json` or `jar-cart.xml`.
 Use the official install scripts to get started instantly:
 
 **Windows (PowerShell):**
-```powershell
+
+```sh
 iwr https://raw.githubusercontent.com/Sudhanshu-Ambastha/jar-cart/main/scripts/install.ps1 -UseBasicParsing | iex
 ```
 
 **Linux / macOS:**
+
 ```bash
 curl -sSL https://raw.githubusercontent.com/Sudhanshu-Ambastha/jar-cart/main/scripts/install.sh | bash
 ```
@@ -71,21 +88,24 @@ curl -sSL https://raw.githubusercontent.com/Sudhanshu-Ambastha/jar-cart/main/scr
 > **Note:** By default, these scripts fetch the latest version. If you need to install a specific version, you can override this:
 
 **Windows (PowerShell):**
-```powershell
+
+```sh
 iwr https://raw.githubusercontent.com/Sudhanshu-Ambastha/jar-cart/main/scripts/install.ps1 -OutFile install.ps1
 ```
-```powershell
-.\install.ps1 -Version v0.1.1
+
+```sh
+.\install.ps1 -Version v0.2.1
 ```
 
 **Linux / macOS:**
-```bash
-VERSION=v0.1.1 curl -sSL https://raw.githubusercontent.com/Sudhanshu-Ambastha/jar-cart/main/scripts/install.sh | bash
+
+```sh
+VERSION=v0.2.1 curl -sSL https://raw.githubusercontent.com/Sudhanshu-Ambastha/jar-cart/main/scripts/install.sh | bash
 ```
 
 ### Initialize a Project
 
-```bash
+```sh
 jar-cart init my-app
 cd my-app
 ```
@@ -121,26 +141,27 @@ jar-cart run test
 
 ## 📋 Commands
 
-| Command | Description |
-| :--- | :--- |
-| `init` | Creates an interactive project layout with JDK locking. |
-| `ls-java` | Inventory all managed JDK runtimes. |
-| `cache list/ls` | Displays inventory and storage usage of cached artifacts. |
-| `cache remove/rm` | Fuzzy-match removal for JAR artifacts and JDKs. |
-| `cache-clear` | Wipes all cached artifacts and registry data. |
-| `search <query>` | Searches Maven Central API for packages. |
-| `sync` | Synchronizes dependencies and provisions local runtimes. |
-| `add <pkg>` | Adds an artifact dependency to your manifest. |
-| `remove <pkg>` | Removes dependency and cleans local links. |
-| `convert <type>` | Translates manifest formats (e.g., `json` to `xml`). |
-| `run <path>` | Compiles and executes with the project-locked JDK. |
-| `run-jar <jar>` | Runs built JAR using the project's isolated JDK. |
-| `decompile <jar>` | Extracts source code via --engine (vineflower/ cfr/ procyon). |
-| `watch <path>` | Starts a reactive, hash-verified file-watcher for incremental builds. |
-| `build` | Packages the project into a standalone, portable Fat JAR. |
-| `help` | Displays this documentation. |
+| Command                      | Description                                                               |
+| :--------------------------- | :------------------------------------------------------------------------ |
+| `init`                       | Creates an interactive project layout with JDK locking.                   |
+| `ls-java`                    | Lists all managed JDK runtimes.                                           |
+| `cache list/ls`              | Displays cached artifacts and storage usage.                              |
+| `cache remove/rm`            | Removes cached JARs and JDKs using fuzzy matching.                        |
+| `cache-clear`                | Clears all cached artifacts and registry data.                            |
+| `search <query>`             | Searches Maven Central for packages.                                      |
+| `sync`                       | Synchronizes dependencies and provisions project runtimes.                |
+| `add <pkg>`                  | Adds a dependency to the project manifest.                                |
+| `remove <pkg>`               | Removes a dependency from the project manifest.                           |
+| `convert <type>`             | Converts manifests between supported formats (`json`/`xml`).              |
+| `run <path> [-- args...]`    | Compiles and runs a project, forwarding application arguments.            |
+| `run-jar <jar> [-- args...]` | Runs a JAR, forwarding application arguments.                             |
+| `decompile <jar>`            | Decompiles JARs using Vineflower, CFR, or Procyon.                        |
+| `watch <path> [-- args...]`  | Watches, recompiles, and restarts while preserving application arguments. |
+| `build`                      | Packages the project into a portable Fat JAR.                             |
+| `help`                       | Displays this documentation.                                              |
 
 ---
+
 ## 🏗 Architecture
 
 ### Isolated Java Runtimes

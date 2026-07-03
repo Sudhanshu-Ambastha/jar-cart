@@ -41,33 +41,33 @@ func NewDependencyTable(columns []table.Column, rows []table.Row) table.Model {
 func HelpTable() string {
 	rows := [][]string{
 		{"Command", "Description"},
-		{"init", "Constructs an interactive project layout with JDK locking"},
-		{"ls-java", "Inventory all managed JDK runtimes"},
-		{"cache list/ls", "Displays inventory and storage usage of cached artifacts"},
-		{"cache remove/rm", "Fuzzy-match removal for JAR artifacts and JDKs"},
-		{"cache-clear", "Wipes all cached artifacts and registry data"},
-		{"search <query>", "Searches Maven Central API for packages"},
-		{"sync", "Synchronizes dependencies and provisions local runtimes"},
-		{"add <pkg>", "Adds an artifact dependency to your manifest"},
-		{"remove <pkg>", "Removes dependency and cleans local links"},
-		{"convert <type>", "Translates manifest formats (json/xml)"},
-		{"run <path>", "Compiles and executes with the project-locked JDK"},
-		{"run-jar <jar>", "Runs built JAR with isolated environment"},
-		{"decompile <jar>", "Extracts source via (vineflower|cfr|procyon)"},
-		{"watch <path>", "Reactive file-watcher with SHA256 integrity checks"},
-		{"build", "Packages project into a portable Fat JAR"},
+		{"init", "Creates an interactive project layout with JDK locking"},
+		{"ls-java", "Lists all managed JDK runtimes"},
+		{"cache list/ls", "Displays cached artifacts and storage usage"},
+		{"cache remove/rm", "Removes cached JARs and JDKs using fuzzy matching"},
+		{"cache-clear", "Clears all cached artifacts and registry data"},
+		{"search <query>", "Searches Maven Central for packages"},
+		{"sync", "Synchronizes dependencies and provisions project runtimes"},
+		{"add <pkg>", "Adds a dependency to the project manifest"},
+		{"remove <pkg>", "Removes a dependency from the project manifest"},
+		{"convert <type>", "Converts manifests between supported formats (json/xml)"},
+		{"run <path> [-- args...]", "Compiles and runs a project, forwarding application arguments"},
+		{"run-jar <jar> [-- args...]", "Runs a JAR, forwarding application arguments"},
+		{"decompile <jar>", "Decompiles JARs using Vineflower, CFR, or Procyon"},
+		{"watch <path> [-- args...]", "Watches, recompiles, and restarts while preserving application arguments"},
+		{"build", "Packages the project into a portable Fat JAR"},
 		{"help", "Displays this documentation"},
 	}
 
 	t := lipglossTable.New().
-		Border(lipgloss.RoundedBorder()). 
-		BorderStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("87"))). 
+		Border(lipgloss.RoundedBorder()).
+		BorderStyle(lipgloss.NewStyle().Foreground(lipgloss.Color("87"))).
 		Headers(rows[0]...).
 		Rows(rows[1:]...)
 
 	t.StyleFunc(func(row, col int) lipgloss.Style {
 		return lipgloss.NewStyle().
-			Foreground(lipgloss.Color("255")). 
+			Foreground(lipgloss.Color("255")).
 			Padding(0, 1)
 	})
 

@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-07-03
+
+### Added
+
+- **Application Argument Forwarding**: `run`, `run-jar`, `watch`, and custom `run` scripts now forward application arguments to Java programs using the familiar `--` separator, following npm-style CLI conventions.
+
+### Improved
+
+- **CLI Consistency**: Unified argument forwarding behavior across `run`, `run-jar`, `watch`, and custom scripts, providing a consistent developer experience.
+- **Watch Mode**: `watch` now preserves forwarded application arguments across automatic recompilation and restart cycles.
+- **Help Documentation**: Updated the built-in help output and README to document forwarded application arguments and npm-style usage patterns.
+
+---
+
 ## [0.2.3] - 2026-07-03
 
 ### Added

@@ -154,22 +154,26 @@ func getMainClassFromJar(jarPath string) (string, error) {
 	return "", fmt.Errorf("Main-Class attribute not found in manifest")
 }
 
-func RunJar(target string, mainClass string) error {
+func RunJar(target string, mainClass string, appArgs []string) error {
 	version, _, javaPath, err := GetJDKPaths()
 	if err != nil {
 		return fmt.Errorf("runtime environment error: %w", err)
 	}
 
 	jarPath := target
+
 	info, err := os.Stat(target)
 	if os.IsNotExist(err) {
 		commonDirs := []string{"dist", "."}
+
 		for _, dir := range commonDirs {
 			potential := filepath.Join(dir, target)
+
 			if _, err := os.Stat(potential); err == nil {
 				jarPath = potential
 				break
 			}
+
 			if !strings.HasSuffix(target, ".jar") {
 				potential = filepath.Join(dir, target+".jar")
 				if _, err := os.Stat(potential); err == nil {
@@ -195,6 +199,26 @@ func RunJar(target string, mainClass string) error {
 		mainClass = detected
 	}
 
-	log.Info("Launching JAR", "path", jarPath, "jdk", version, "main", mainClass)
-	return runCommand(javaPath, "-cp", jarPath, mainClass)
+	log.Info(
+		"Launching JAR",
+		"path", jarPath,
+		"jdk", version,
+		"main", mainClass,
+		"args", appArgs,
+	)
+
+	args := []string{
+		"-cp",
+		jarPath,
+		mainClass,
+	}
+
+	args = append(args, appArgs...)
+
+	cmd := exec.Command(javaPath, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	return cmd.Run()
 }
