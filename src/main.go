@@ -15,7 +15,7 @@ import (
 const (
 	ManifestJSON = "jar-cart.json"
 	ManifestXML  = "jar-cart.xml"
-	Version = "v0.3.0"
+	Version = "v0.3.1"
 )
 
 func printHelp() {
@@ -50,7 +50,9 @@ func main() {
 		}
 	}
 
-	utils.AutoCheckUpdate(Version)
+	if ok, latest := utils.AutoCheckUpdate(Version); ok {
+		fmt.Println(components.UpdateNotification(Version, latest))
+	}
 
 	if len(os.Args) < 2 {
 		printHelp()

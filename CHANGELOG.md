@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.1] - 2026-07-03
+
+### Improved
+
+- **Update Notifications**: Automatic update checks now display a non-blocking notification when a newer version is available, allowing users to easily discover new releases while keeping command execution uninterrupted.
+- **CLI Experience**: Improved update notification workflow to better align with modern package managers such as npm, pnpm, and bun by displaying update information using cached background checks.
+
+---
+
 ## [0.3.0] - 2026-07-03
 
 ### Added
@@ -28,10 +37,12 @@ All notable changes to this project will be documented in this file.
 
 - **Unified Update Pipeline**: Consolidated download, checksum verification, and OS-aware binary replacement into a single safe update workflow with rollback protection.
 - **Semantic Versioning**: Adopted `golang.org/x/mod/semver` for reliable version validation, comparison, and lifecycle management.
-- **Automatic Update Check**: Package manager now checks for updates in the background and displays a non-blocking notification when a newer version is available.
+- **Automatic Update Check**: Package manager now checks for updates in the background and caches the latest release information for future notifications.
 - **Dependency Resolution Consistency**: Standardized dependency resolution logic across `add`, `sync`, and `lockfile` generation using a single unified rule (`IsFullResolution`), ensuring consistent behavior for `shallow` and `full` modes throughout the system.
 - **Project Validation**: Commands that require a project manifest now fail immediately when neither `jar-cart.json` nor `jar-cart.xml` is present, preventing unintended dependency resolution and misleading follow-up errors.
-- **Windows Update Stability**: Improved executable replacement with stronger error handling, rollback behaviour, and automatic clean-up of temporary update artifacts after successful self-updates.
+- **Windows Update Stability**: Improved executable replacement with stronger error handling, rollback behavior, and automatic cleanup of temporary update artifacts after successful self-updates.
+
+---
 
 ## [0.2.2] - 2026-07-02
 
@@ -40,12 +51,16 @@ All notable changes to this project will be documented in this file.
 - **UI Clipping:** Fixed viewport clipping issues in the help and search tables.
 - **Visual Polish:** Updated UI borders to use rounded corners and a vibrant neon-blue color scheme for improved readability.
 
+---
+
 ## [0.2.1] - 2026-07-02
 
-**Fixed**
+### Fixed
 
-- **CLI Visibility:** `Removed -H=windowsgui` linker flag to ensure proper stdout/stderr attachment to the console on Windows.
+- **CLI Visibility:** Removed the `-H=windowsgui` linker flag to ensure proper stdout/stderr attachment to the console on Windows.
 - **Flag Parsing:** Added support for `--v` as a valid alias for the version command.
+
+---
 
 ## [0.2.0] - 2026-07-02
 
@@ -92,12 +107,19 @@ All notable changes to this project will be documented in this file.
 - **Core CLI**: Initial production release of `jar-cart`.
 - **Package Management**: Native support for searching, scaffolding, and managing Java project dependencies.
 - **Build System**: Automated cross-platform build pipeline for Windows, Linux, and macOS.
-- **Security**:
-  - Implemented SHA256 integrity verification for all binary releases.
-  - Automated code-signing support for Windows binaries.
-- **Professionalism**:
-  - Embedded Windows metadata (Version, Copyright, Description).
-  - Integrated self-update mechanism with hash validation.
-- **User Experience**: Professional console UI with loading spinners and clean table outputs.
+
+### Security
+
+- Implemented SHA256 integrity verification for all binary releases.
+- Automated code-signing support for Windows binaries.
+
+### Professionalism
+
+- Embedded Windows metadata (Version, Copyright, Description).
+- Integrated self-update mechanism with hash validation.
+
+### User Experience
+
+- Professional console UI with loading spinners and clean table outputs.
 
 ---
