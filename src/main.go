@@ -15,7 +15,7 @@ import (
 const (
 	ManifestJSON = "jar-cart.json"
 	ManifestXML  = "jar-cart.xml"
-	Version = "v0.2.3"
+	Version = "v0.3.0"
 )
 
 func printHelp() {
@@ -359,28 +359,49 @@ func main() {
 			logger.Error("Run requires a target.")
 			return
 		}
+
 		target := filteredArgs[0]
-		
+		appArgs := utils.GetForwardedArgs()
+
 		manifest, err := utils.LoadManifest(manifestFile)
 		if err == nil && manifest.Scripts != nil {
 			if _, ok := manifest.Scripts[target]; ok {
-				logger.Info("Executing script", "script", target)
-				if err := utils.RunScript(target, manifest); err != nil {
+				logger.Info(
+					"Executing script",
+					"script", target,
+					"args", appArgs,
+				)
+
+				if err := utils.RunScript(target, appArgs, manifest); err != nil {
 					logger.Error("Script execution failed", "error", err)
 				}
-				return 
+				return
 			}
 		}
-		
-		logger.Info("Executing target", "target", target)
-		utils.RunProject(target)
+
+		logger.Info(
+			"Executing target",
+			"target", target,
+			"args", appArgs,
+		)
+
+		utils.RunProject(target, appArgs)
 
 	case "watch":
-			target := "src"
-			if len(filteredArgs) > 0 {
-				target = filteredArgs[0]
-			}
-			utils.WatchAndRun(target)
+		target := "src"
+		if len(filteredArgs) > 0 {
+			target = filteredArgs[0]
+		}
+
+		appArgs := utils.GetForwardedArgs()
+
+		logger.Info(
+			"Watching target",
+			"target", target,
+			"args", appArgs,
+		)
+
+		utils.WatchAndRun(target, appArgs)
 
 	case "build":
 		if err := utils.RunBuild(); err != nil {
@@ -391,15 +412,27 @@ func main() {
 	
 	case "run-jar":
 		if len(filteredArgs) < 1 {
-			logger.Error("run-jar requires a jar path.")
+			logger.Error("run-jar requires a JAR path.")
 			return
 		}
+
 		jarPath := filteredArgs[0]
+
 		mainClass := ""
 		if len(filteredArgs) > 1 {
 			mainClass = filteredArgs[1]
 		}
-		if err := utils.RunJar(jarPath, mainClass); err != nil {
+
+		appArgs := utils.GetForwardedArgs()
+
+		logger.Info(
+			"Executing JAR",
+			"jar", jarPath,
+			"main", mainClass,
+			"args", appArgs,
+		)
+
+		if err := utils.RunJar(jarPath, mainClass, appArgs); err != nil {
 			logger.Error("Failed to run JAR", "error", err)
 		}
 	

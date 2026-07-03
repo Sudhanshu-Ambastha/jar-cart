@@ -56,7 +56,7 @@ func ResolveMainClass(filePath string) string {
     return strings.TrimSuffix(filepath.Base(filePath), ".java")
 }
 
-func RunProject(input string) {
+func RunProject(input string, appArgs []string) {
 	javaVersion, javacPath, javaPath, err := GetJDKPaths()
 	if err != nil {
 		log.Error("JDK configuration error", "error", err)
@@ -71,6 +71,7 @@ func RunProject(input string) {
 	classpath := binDir + string(os.PathListSeparator) + filepath.Join(absLib, "*")
 
 	cwd, _ := os.Getwd()
+
 	javaFiles, err := FindJavaFiles(cwd)
 	if err != nil || len(javaFiles) == 0 {
 		log.Error("No Java source files detected")
@@ -78,21 +79,44 @@ func RunProject(input string) {
 	}
 
 	argfilePath := filepath.Join(".jar-cart", "sources.txt")
-	argfile, _ := os.Create(argfilePath)
+	argfile, err := os.Create(argfilePath)
+	if err != nil {
+		log.Error("Failed to create javac argfile", "error", err)
+		return
+	}
+	defer func() {
+		argfile.Close()
+		_ = os.Remove(argfilePath)
+	}()
+
 	for _, file := range javaFiles {
 		relPath, _ := filepath.Rel(cwd, file)
-		argfile.WriteString(relPath + "\n")
+		_, _ = argfile.WriteString(relPath + "\n")
 	}
-	argfile.Close()
-	defer os.Remove(argfilePath)
+
+	if err := argfile.Close(); err != nil {
+		log.Error("Failed to finalize javac argfile", "error", err)
+		return
+	}
 
 	log.Info("Compiling with JDK", "version", javaVersion)
-	javacCmd := exec.Command(javacPath, "-cp", classpath, "-sourcepath", cwd, "-d", binDir, "@"+argfilePath)
+
+	javacCmd := exec.Command(
+		javacPath,
+		"-cp",
+		classpath,
+		"-sourcepath",
+		cwd,
+		"-d",
+		binDir,
+		"@"+argfilePath,
+	)
+
 	javacCmd.Stdout = os.Stdout
 	javacCmd.Stderr = os.Stderr
-	
+
 	if err := javacCmd.Run(); err != nil {
-		log.Error("Compilation failed")
+		log.Error("Compilation failed", "error", err)
 		return
 	}
 
@@ -101,15 +125,29 @@ func RunProject(input string) {
 		log.Error("Could not resolve target", "input", input, "error", err)
 		return
 	}
+
 	mainClass := ResolveMainClass(targetFile)
 
-	log.Info("Booting execution engine", "jdk", javaVersion, "class", mainClass)
-	
-	javaCmd := exec.Command(javaPath, "-cp", classpath, mainClass)
+	log.Info(
+		"Booting execution engine",
+		"jdk", javaVersion,
+		"class", mainClass,
+		"args", appArgs,
+	)
+
+	args := []string{
+		"-cp",
+		classpath,
+		mainClass,
+	}
+
+	args = append(args, appArgs...)
+
+	javaCmd := exec.Command(javaPath, args...)
 	javaCmd.Stdin = os.Stdin
 	javaCmd.Stdout = os.Stdout
 	javaCmd.Stderr = os.Stderr
-	
+
 	if err := javaCmd.Run(); err != nil {
 		log.Error("Execution failed", "error", err)
 	}
@@ -169,33 +207,48 @@ func hasMainMethod(filePath string) bool {
 	return strings.Contains(string(content), "public static void main")
 }
 
-func RunScript(scriptName string, manifest *models.Manifest) error {
+func GetForwardedArgs() []string {
+	for i, arg := range os.Args {
+		if arg == "--" {
+			if i+1 < len(os.Args) {
+				return os.Args[i+1:]
+			}
+			break
+		}
+	}
+	return []string{}
+}
+
+func RunScript(scriptName string, scriptArgs []string, manifest *models.Manifest) error {
 	if pre, ok := manifest.Scripts["pre"+scriptName]; ok {
 		log.Info("Running pre-script", "script", scriptName)
-		if err := executeShellCommand(pre, scriptName); err != nil {
+		if err := executeShellCommand(pre, scriptName, nil); err != nil {
 			return err
 		}
 	}
 
-	if main, ok := manifest.Scripts[scriptName]; ok {
-		log.Info("Running script", "script", scriptName)
-		if err := executeShellCommand(main, scriptName); err != nil {
-			return err
-		}
-	} else {
+	mainCmd, ok := manifest.Scripts[scriptName]
+	if !ok {
 		log.Error("Script not found", "script", scriptName)
 		return fmt.Errorf("script '%s' not found in manifest", scriptName)
 	}
 
+	log.Info("Running script", "script", scriptName, "args", scriptArgs)
+	if err := executeShellCommand(mainCmd, scriptName, scriptArgs); err != nil {
+		return err
+	}
+
 	if post, ok := manifest.Scripts["post"+scriptName]; ok {
 		log.Info("Running post-script", "script", scriptName)
-		return executeShellCommand(post, scriptName)
+		return executeShellCommand(post, scriptName, nil)
 	}
+
 	return nil
 }
 
-func executeShellCommand(cmdStr string, eventName string) error {
+func executeShellCommand(cmdStr string, eventName string, scriptArgs []string) error {
 	var cmd *exec.Cmd
+
 	_, javacPath, _, err := GetJDKPaths()
 	jdkBinDir := ""
 	if err == nil {
@@ -209,27 +262,47 @@ func executeShellCommand(cmdStr string, eventName string) error {
 
 	if runtime.GOOS == "windows" {
 		cmdStr = strings.ReplaceAll(cmdStr, "{JAR_CART}", "\""+exePath+"\"")
-		powershellCmd := "& " + cmdStr
-		cmd = exec.Command("powershell", "-NoProfile", "-Command", powershellCmd)
 	} else {
 		cmdStr = strings.ReplaceAll(cmdStr, "{JAR_CART}", exePath)
-		cmd = exec.Command("sh", "-c", cmdStr)
 	}
-	
+
+	if len(scriptArgs) > 0 {
+		cmdStr += " " + strings.Join(scriptArgs, " ")
+	}
+
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command(
+			"powershell",
+			"-NoProfile",
+			"-Command",
+			"& "+cmdStr,
+		)
+	} else {
+		cmd = exec.Command(
+			"sh",
+			"-c",
+			cmdStr,
+		)
+	}
+
 	cwd, _ := os.Getwd()
+
 	cmd.Env = os.Environ()
-	cmd.Env = append(cmd.Env, 
+	cmd.Env = append(cmd.Env,
 		"INIT_CWD="+cwd,
 		"JAR_CART_LIFECYCLE_EVENT="+eventName,
 	)
 
 	if jdkBinDir != "" {
-		pathSep := string(os.PathListSeparator)
-		cmd.Env = append(cmd.Env, "PATH="+jdkBinDir+pathSep+os.Getenv("PATH"))
+		cmd.Env = append(
+			cmd.Env,
+			"PATH="+jdkBinDir+string(os.PathListSeparator)+os.Getenv("PATH"),
+		)
 	}
-	
+
+	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	
+
 	return cmd.Run()
 }
