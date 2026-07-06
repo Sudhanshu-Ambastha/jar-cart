@@ -10,6 +10,8 @@ A fast, cross-platform CLI tool written in Go to fetch, cache, and execute Java 
 
 By leveraging native filesystem **Hard Links**, a **Content Addressable Storage (CAS)** cache, and **Isolated Runtime Provisioning**, `jar-cart` eliminates the friction of traditional build systems while providing near-instant dependency reuse and project-specific Java runtimes.
 
+![jar-cart demo](./vid/jar-cart-cli.gif)
+
 _Note: This is version ![Version](https://img.shields.io/github/v/release/Sudhanshu-Ambastha/jar-cart?label=Version&color=blue) of the manager._
 
 ---

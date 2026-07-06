@@ -15,7 +15,7 @@ import (
 const (
 	ManifestJSON = "jar-cart.json"
 	ManifestXML  = "jar-cart.xml"
-	Version = "v0.3.1"
+	Version = "v0.3.2"
 )
 
 func printHelp() {

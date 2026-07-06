@@ -1,6 +1,6 @@
 .github/modernize/
 .vscode/
-spring-maven-test/
+maven-test/
 my-app/
 myapp/
 t2/

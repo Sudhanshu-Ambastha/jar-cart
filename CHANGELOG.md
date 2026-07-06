@@ -2,6 +2,48 @@
 
 All notable changes to this project will be documented in this file.
 
+# [0.3.2] - 2026-07-06
+
+## 🐛 Fixed
+
+### XML Manifest dJDK Resolution
+
+- Fixed an issue where `GetJDKPaths` always assumed `jar-cart.json` as the manifest source.
+- Projects using `jar-cart.xml` would incorrectly fall back to **JDK 25**, ignoring the configured JDK version.
+- JDK resolution now correctly detects and reads whichever manifest (`jar-cart.json` or `jar-cart.xml`) is present.
+
+---
+
+## ✨ Improved
+
+### 📄 Manifest Detection
+
+- Introduced a reusable `DetectManifestFile` utility.
+- Ensures consistent manifest detection and resolution across all commands.
+- Reduces duplicated manifest lookup logic.
+
+### ⚡ Incremental Builds
+
+- Added **SHA-256 content-aware hashing** to the `RunProject` lifecycle.
+- `jar-cart` now verifies project integrity before recompiling.
+- Eliminates redundant build cycles when source files are unchanged.
+- Avoids unnecessary deletion and recreation of the `bin/` directory.
+
+### 🔄 Unified Hashing Utility
+
+- Consolidated file hashing functionality into the `utils` package.
+- Removes duplicated hashing logic between the watcher and runner components.
+- Improves maintainability and consistency.
+
+### 👀 Watcher Debouncing & Stability
+
+- Improved the file watcher with:
+  - Content verification before rebuilds.
+  - **500 ms debounce** interval.
+- Provides more reliable hot reloads.
+- Better handles atomic file saves from modern editors and IDEs.
+- Reduces unnecessary rebuilds triggered by duplicate file system events.
+
 ## [0.3.1] - 2026-07-03
 
 ### Improved
