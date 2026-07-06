@@ -10,6 +10,8 @@ A fast, cross-platform CLI tool written in Go to fetch, cache, and execute Java 
 
 By leveraging native filesystem **Hard Links**, a **Content Addressable Storage (CAS)** cache, and **Isolated Runtime Provisioning**, `jar-cart` eliminates the friction of traditional build systems while providing near-instant dependency reuse and project-specific Java runtimes.
 
+![jar-cart demo](./vid/jar-cart-cli.gif)
+
 _Note: This is version ![Version](https://img.shields.io/github/v/release/Sudhanshu-Ambastha/jar-cart?label=Version&color=blue) of the manager._
 
 ---
@@ -158,6 +160,7 @@ jar-cart run test
 | `decompile <jar>`            | Decompiles JARs using Vineflower, CFR, or Procyon.                        |
 | `watch <path> [-- args...]`  | Watches, recompiles, and restarts while preserving application arguments. |
 | `build`                      | Packages the project into a portable Fat JAR.                             |
+| `self-update [version]`      | Updates jar-cart or switches to a specific release.                       |
 | `help`                       | Displays this documentation.                                              |
 
 ---

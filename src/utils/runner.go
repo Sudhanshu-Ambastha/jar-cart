@@ -63,61 +63,49 @@ func RunProject(input string, appArgs []string) {
 		return
 	}
 
-	binDir, _ := filepath.Abs(filepath.Join(".jar-cart", "bin"))
-	_ = os.RemoveAll(binDir)
-	_ = os.MkdirAll(binDir, 0755)
-
-	absLib, _ := filepath.Abs("lib")
-	classpath := binDir + string(os.PathListSeparator) + filepath.Join(absLib, "*")
-
 	cwd, _ := os.Getwd()
-
 	javaFiles, err := FindJavaFiles(cwd)
 	if err != nil || len(javaFiles) == 0 {
 		log.Error("No Java source files detected")
 		return
 	}
 
-	argfilePath := filepath.Join(".jar-cart", "sources.txt")
-	argfile, err := os.Create(argfilePath)
-	if err != nil {
-		log.Error("Failed to create javac argfile", "error", err)
-		return
-	}
-	defer func() {
+	binDir, _ := filepath.Abs(filepath.Join(".jar-cart", "bin"))
+	hashFilePath := filepath.Join(".jar-cart", "last_build.hash")
+	absLib, _ := filepath.Abs("lib")
+	classpath := binDir + string(os.PathListSeparator) + filepath.Join(absLib, "*")
+	newHash, _ := CalculateProjectHash(javaFiles)
+	lastHashBytes, _ := os.ReadFile(hashFilePath)
+	
+	if string(lastHashBytes) != fmt.Sprintf("%x", newHash) {
+		log.Info("Changes detected, recompiling...", "version", javaVersion)
+		
+		_ = os.RemoveAll(binDir)
+		_ = os.MkdirAll(binDir, 0755)
+
+		argfilePath := filepath.Join(".jar-cart", "sources.txt")
+		argfile, err := os.Create(argfilePath)
+		if err != nil {
+			log.Error("Failed to create javac argfile", "error", err)
+			return
+		}
+		for _, file := range javaFiles {
+			relPath, _ := filepath.Rel(cwd, file)
+			_, _ = argfile.WriteString(relPath + "\n")
+		}
 		argfile.Close()
-		_ = os.Remove(argfilePath)
-	}()
+		defer os.Remove(argfilePath)
 
-	for _, file := range javaFiles {
-		relPath, _ := filepath.Rel(cwd, file)
-		_, _ = argfile.WriteString(relPath + "\n")
-	}
+		javacCmd := exec.Command(javacPath, "-cp", classpath, "-sourcepath", cwd, "-d", binDir, "@"+argfilePath)
+		javacCmd.Stdout, javacCmd.Stderr = os.Stdout, os.Stderr
 
-	if err := argfile.Close(); err != nil {
-		log.Error("Failed to finalize javac argfile", "error", err)
-		return
-	}
-
-	log.Info("Compiling with JDK", "version", javaVersion)
-
-	javacCmd := exec.Command(
-		javacPath,
-		"-cp",
-		classpath,
-		"-sourcepath",
-		cwd,
-		"-d",
-		binDir,
-		"@"+argfilePath,
-	)
-
-	javacCmd.Stdout = os.Stdout
-	javacCmd.Stderr = os.Stderr
-
-	if err := javacCmd.Run(); err != nil {
-		log.Error("Compilation failed", "error", err)
-		return
+		if err := javacCmd.Run(); err != nil {
+			log.Error("Compilation failed", "error", err)
+			return
+		}
+		_ = os.WriteFile(hashFilePath, []byte(fmt.Sprintf("%x", newHash)), 0644)
+	} else {
+		log.Info("No changes detected, skipping compilation.")
 	}
 
 	targetFile, err := resolveTargetFile(cwd, input, javaFiles)
@@ -127,26 +115,11 @@ func RunProject(input string, appArgs []string) {
 	}
 
 	mainClass := ResolveMainClass(targetFile)
+	log.Info("Booting execution engine", "jdk", javaVersion, "class", mainClass)
 
-	log.Info(
-		"Booting execution engine",
-		"jdk", javaVersion,
-		"class", mainClass,
-		"args", appArgs,
-	)
-
-	args := []string{
-		"-cp",
-		classpath,
-		mainClass,
-	}
-
-	args = append(args, appArgs...)
-
+	args := append([]string{"-cp", classpath, mainClass}, appArgs...)
 	javaCmd := exec.Command(javaPath, args...)
-	javaCmd.Stdin = os.Stdin
-	javaCmd.Stdout = os.Stdout
-	javaCmd.Stderr = os.Stderr
+	javaCmd.Stdin, javaCmd.Stdout, javaCmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 
 	if err := javaCmd.Run(); err != nil {
 		log.Error("Execution failed", "error", err)
