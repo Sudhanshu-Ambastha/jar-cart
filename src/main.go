@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/Sudhanshu-Ambastha/jar-cart/src/ui/components"
 	"github.com/Sudhanshu-Ambastha/jar-cart/src/utils"
@@ -15,7 +16,7 @@ import (
 const (
 	ManifestJSON = "jar-cart.json"
 	ManifestXML  = "jar-cart.xml"
-	Version = "v0.3.2"
+	Version = "v0.4.0"
 )
 
 func printHelp() {
@@ -60,6 +61,14 @@ func main() {
 	}
 
 	command := os.Args[1]
+
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		if elapsed > 100*time.Millisecond {
+			logger.Info("Done", "duration", elapsed.Round(time.Millisecond).String())
+		}
+	}()
 	manifestFile := ManifestJSON
 	if _, err := os.Stat(ManifestXML); err == nil && os.Getenv("JAR_CART_XML") == "1" {
 		manifestFile = ManifestXML
@@ -411,6 +420,19 @@ func main() {
 			os.Exit(1)
 		}
 		logger.Info("Build successful!")
+
+	case "optimize":
+		if len(os.Args) < 4 {
+			log.Fatal("Usage: jar-cart optimize <jar-path> <output-dir>")
+		}
+		jarPath := os.Args[2]
+		outputDir := os.Args[3]
+		
+		err := utils.OptimizeJarForDeployment(jarPath, outputDir)
+		if err != nil {
+			log.Fatal("Optimization failed", "error", err)
+		}
+		log.Info("Runtime optimized successfully!")
 	
 	case "run-jar":
 		if len(filteredArgs) < 1 {

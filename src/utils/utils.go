@@ -7,6 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"time"
+
+	"github.com/charmbracelet/log"
 )
 
 func DetectManifestFile() string {
@@ -70,4 +74,26 @@ func CalculateProjectHash(files []string) ([32]byte, error) {
 	var res [32]byte
 	copy(res[:], h.Sum(nil))
 	return res, nil
+}
+
+func GetExcludedModules() []string {
+    content, err := os.ReadFile(".jarcartignore")
+    if err != nil {
+        return []string{} 
+    }
+    
+    var modules []string
+    lines := strings.Split(string(content), "\n")
+    for _, line := range lines {
+        line = strings.TrimSpace(line)
+        if line != "" && !strings.HasPrefix(line, "#") {
+            modules = append(modules, line)
+        }
+    }
+    return modules
+}
+
+func TrackDuration(start time.Time, name string, logger *log.Logger) {
+    elapsed := time.Since(start)
+    logger.Info("Command finished", "cmd", name, "duration", elapsed.Round(time.Millisecond).String())
 }

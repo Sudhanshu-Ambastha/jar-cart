@@ -12,7 +12,7 @@ By leveraging native filesystem **Hard Links**, a **Content Addressable Storage 
 
 ![jar-cart demo](./vid/jar-cart-cli.gif)
 
-_Note: This is version ![Version](https://img.shields.io/github/v/release/Sudhanshu-Ambastha/jar-cart?label=Version&color=blue) of the manager._
+_Note: This is version ![Version](https://img.shields.io/github/v/release/Sudhanshu-Ambastha/jar-cart?label=Version&color=blue) of the manager. See the [CHANGELOG](CHANGELOG.md) for recent updates._
 
 ---
 
@@ -22,50 +22,76 @@ _Note: This is version ![Version](https://img.shields.io/github/v/release/Sudhan
 
 - **Content Addressable Storage (CAS):** Artifacts are downloaded once and shared across all projects.
 - **Hard-Linking:** Dependencies are linked instantly into projects without duplicating disk usage.
+- **Incremental Builds:** SHA-256 content-aware hashing skips unnecessary recompilation when source files haven't changed.
+- **Performance Telemetry:** Every command reports execution time, providing instant feedback on pipeline performance.
+
+### 📦 Deployment & Optimization
+
+- **Manifest-Driven Optimization:** Declaratively configure `compression`, `strip_debug`, and `strip_native` directly in `jar-cart.json` or `jar-cart.xml`.
+
+  **jar-cart.json:-**
+
+  ```json
+  "optimize": {
+    "compression": 2,
+    "strip_debug": true,
+    "strip_native": true
+  }
+  ```
+
+  **jar-cart.xml:-**
+
+  ```xml
+  <optimize>
+    <compression>2</compression>
+    <strip_debug>true</strip_debug>
+    <strip_native>true</strip_native>
+  </optimize>
+  ```
+
+- **Minimal Runtime Packaging:** Automatically generate lightweight custom Java runtimes with `jlink`, reducing standard 290MB+ JDK distributions to compact standalone runtimes (~12MB, depending on included modules).
+- **One-Command Deployment:** Build optimized applications and runtime images using a unified optimization workflow.
 
 ### ☕ Isolated Runtimes
 
-- **Project-Level Version Locking:** Pin a specific JDK version in `jar-cart.json`. `jar-cart` automatically provisions, isolates, and manages the required runtime, ensuring every project executes with the exact Java version it was developed against.
+- **Project-Level Version Locking:** Pin a specific JDK version per project. `jar-cart` automatically provisions and manages isolated runtimes so every project runs with the exact Java version it was built against.
+- **Automatic Runtime Discovery:** Detects and uses the correct project manifest (`jar-cart.json` or `jar-cart.xml`) for consistent JDK resolution.
 
 ### 🛠 Reverse Engineering & Patching
 
-- **Integrated Decompilation:** Automatically provisions and manages Vineflower, CFR, and Procyon so JARs can be decompiled without any manual setup.
-
-- **Decompiler-to-Build Workflow:** Decompiled projects can be modified, rebuilt, and packaged back into executable JARs using the normal `jar-cart` toolchain.
+- **Integrated Decompilation:** Automatically provisions and manages Vineflower, CFR, and Procyon.
+- **Decompiler-to-Build Workflow:** Modify decompiled applications and rebuild them into executable JARs using the native `jar-cart` toolchain.
 
 ### 🧠 Intelligent CLI Experience
 
-- **Automatic Entry Point Detection:** `jar-cart` automatically locates the application's `main()` class, eliminating manual manifest configuration for most projects.
+- **Automatic Entry Point Detection:** Automatically discovers the application's `main()` class.
+- **Flexible Target Resolution:** `run` and `run-jar` intelligently resolve source files, directories, class names, or JARs.
+- **NPM-Style Argument Forwarding:** Use `--` to forward application arguments without conflicting with CLI options.
 
-- **Flexible Target Resolution:** `run` and `run-jar` accept source files, directories, class names, or JAR names and automatically resolve the correct execution target.
-
-- **NPM-style Argument Forwarding:** Everything after `--` is forwarded directly to the Java application, allowing runtime arguments without conflicting with `jar-cart`'s own CLI options.
-
-  ```sh
-  jar-cart run src -- --server
-  jar-cart run App -- --port 8080 --debug
-  jar-cart run-jar app.jar -- --profile production
-  jar-cart watch src -- --server
-  ```
+```sh
+jar-cart run src -- --server
+jar-cart optimize dist/app.jar dist/my-runtime
+```
 
 ### 📜 Custom Script Runner
 
-- **Lifecycle Scripts:** Define reusable commands (such as `build`, `test`, or `lint`) in `jar-cart.json`. `jar-cart` automatically executes matching `pre-` and `post-` lifecycle hooks, similar to npm.
+- **Lifecycle Scripts:** Define reusable commands such as `build`, `test`, or `lint` in your manifest. `jar-cart` automatically executes `pre-` and `post-` lifecycle hooks.
 
 ### 🔒 Security & Reliability
 
-- **SHA256 Verification:** Downloaded artifacts and release binaries are verified before use.
-- **Atomic Operations:** Prevents partially downloaded artifacts or interrupted updates from corrupting the local installation.
+- **SHA-256 Verification:** Verifies release binaries, downloaded artifacts, and cached dependencies for integrity.
+- **Atomic Operations:** Prevents interrupted downloads or updates from corrupting the local registry or project state.
+- **Safe Self-Updates:** Performs checksum validation with rollback protection during updates.
 
 ### 🚀 Developer Experience
 
-- **Hot Reload Development:** `watch` automatically recompiles and restarts applications whenever Java source files change.
-- **Persistent Runtime Arguments:** Forwarded application arguments are preserved across every automatic restart.
-- **Consistent CLI:** `run`, `run-jar`, and `watch` all follow the same npm-style argument forwarding syntax.
+- **Hot Reloading:** `watch` monitors source changes, recompiles only when content changes, and restarts while preserving application arguments.
+- **Smart File Watching:** Content verification with debounce minimizes duplicate rebuilds caused by modern editors.
+- **Unified CLI:** Consistent command behavior across `run`, `run-jar`, `watch`, `optimize`, and custom scripts.
 
 ### 🧩 Zero Configuration
 
-Works out of the box with `jar-cart.json` or `jar-cart.xml`.
+Works out of the box with either `jar-cart.json` or `jar-cart.xml`, automatically detecting and using the appropriate project manifest.
 
 ---
 
@@ -160,6 +186,7 @@ jar-cart run test
 | `decompile <jar>`            | Decompiles JARs using Vineflower, CFR, or Procyon.                        |
 | `watch <path> [-- args...]`  | Watches, recompiles, and restarts while preserving application arguments. |
 | `build`                      | Packages the project into a portable Fat JAR.                             |
+| `optimize <jar> <out>`       | Creates a custom, manifest-configured standalone runtime.                 |
 | `self-update [version]`      | Updates jar-cart or switches to a specific release.                       |
 | `help`                       | Displays this documentation.                                              |
 
