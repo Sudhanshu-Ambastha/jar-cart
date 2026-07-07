@@ -33,8 +33,9 @@ type GitHubRelease struct {
 }
 
 type UpdateCache struct {
-	LatestVersion string    `json:"latest_version"`
-	CheckedAt     time.Time `json:"checked_at"`
+    LatestVersion string    `json:"latest_version"`
+    CheckedAt     time.Time `json:"checked_at"`
+    ETag          string    `json:"etag"` 
 }
 
 type progressWriter struct {
@@ -145,48 +146,43 @@ func loadLatestVersionCache() (*UpdateCache, error) {
 	return &cache, nil
 }
 
-func AutoCheckUpdate(currentVersion string) (bool, string) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return false, ""
-	}
-
+func saveLatestVersionCacheWithETag(version, etag string) {
+	homeDir, _ := os.UserHomeDir()
 	cacheDir := filepath.Join(homeDir, ".jar-cart")
-	_ = os.MkdirAll(cacheDir, 0755)
-
-	cache, err := loadLatestVersionCache()
-	if err != nil {
-		cache = nil
+	cache := UpdateCache{
+		LatestVersion: version,
+		CheckedAt:     time.Now(),
+		ETag:          etag,
 	}
+	data, _ := json.MarshalIndent(cache, "", "  ")
+	_ = os.WriteFile(filepath.Join(cacheDir, "latest_version.json"), data, 0644)
+}
 
+func AutoCheckUpdate(currentVersion string) (bool, string) {
+	homeDir, _ := os.UserHomeDir()
+	cacheDir := filepath.Join(homeDir, ".jar-cart")
 	timestampFile := filepath.Join(cacheDir, ".last_update_check")
-	if info, err := os.Stat(timestampFile); err != nil || time.Since(info.ModTime()) >= 24*time.Hour {
+	if info, err := os.Stat(timestampFile); err != nil || time.Since(info.ModTime()) >= 30*time.Minute {
 		_ = os.WriteFile(timestampFile, []byte(time.Now().Format(time.RFC3339)), 0644)
 
 		go func() {
-			release, err := FetchReleaseMetadata("latest")
-			if err != nil {
-				return
+			cache, _ := loadLatestVersionCache()
+			etag := ""
+			if cache != nil { etag = cache.ETag }
+
+			release, newETag, err := FetchReleaseMetadataWithETag("latest", etag)
+			if err == nil && newETag != "" && newETag != etag {
+				saveLatestVersionCacheWithETag(release.TagName, newETag)
 			}
-			saveLatestVersionCache(release.TagName)
 		}()
 	}
 
-	if cache == nil || cache.LatestVersion == "" {
-		return false, ""
+	cache, _ := loadLatestVersionCache()
+	if cache == nil || cache.LatestVersion == "" { return false, "" }
+
+	if semver.Compare(normalizeVersion(currentVersion), normalizeVersion(cache.LatestVersion)) < 0 {
+		return true, cache.LatestVersion
 	}
-
-	current := normalizeVersion(currentVersion)
-	latest := normalizeVersion(cache.LatestVersion)
-
-	if !semver.IsValid(current) || !semver.IsValid(latest) {
-		return false, ""
-	}
-
-	if semver.Compare(current, latest) < 0 {
-		return true, latest
-	}
-
 	return false, ""
 }
 
@@ -366,24 +362,39 @@ func unzipJdkArchive(src, dest string) error {
 	return nil
 }
 
+func FetchReleaseMetadataWithETag(tag string, currentETag string) (GitHubRelease, string, error) {
+    url := "https://api.github.com/repos/Sudhanshu-Ambastha/jar-cart/releases/latest"
+    if tag != "latest" {
+        url = fmt.Sprintf("https://api.github.com/repos/Sudhanshu-Ambastha/jar-cart/releases/tags/%s", tag)
+    }
+    
+    req, _ := http.NewRequest("GET", url, nil)
+    if currentETag != "" {
+        req.Header.Set("If-None-Match", currentETag)
+    }
+
+    client := &http.Client{Timeout: 10 * time.Second}
+    resp, err := client.Do(req)
+    if err != nil { 
+        return GitHubRelease{}, "", err 
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode == http.StatusNotModified {
+        return GitHubRelease{}, currentETag, nil 
+    }
+
+    var release GitHubRelease
+    if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+        return GitHubRelease{}, "", err
+    }
+    
+    return release, resp.Header.Get("ETag"), nil
+}
+
 func FetchReleaseMetadata(tag string) (GitHubRelease, error) {
-	url := "https://api.github.com/repos/Sudhanshu-Ambastha/jar-cart/releases/latest"
-	if tag != "latest" {
-		url = fmt.Sprintf("https://api.github.com/repos/Sudhanshu-Ambastha/jar-cart/releases/tags/%s", tag)
-	}
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Get(url)
-	if err != nil {
-		return GitHubRelease{}, err
-	}
-	defer resp.Body.Close()
-
-	var release GitHubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return GitHubRelease{}, err
-	}
-	return release, nil
+    release, _, err := FetchReleaseMetadataWithETag(tag, "")
+    return release, err
 }
 
 func DownloadAndVerify(release GitHubRelease, tmpFile string) error {
@@ -499,37 +510,34 @@ func ApplyBinarySwap(tmpFile string) error {
 }
 
 func PerformUpdate(tag string) error {
-	release, err := FetchReleaseMetadata(tag)
-	if err != nil { return err }
-	
-	tmpFile := filepath.Join(os.TempDir(), "jar-cart.tmp")
-	defer os.Remove(tmpFile)
+    release, _, err := FetchReleaseMetadataWithETag(tag, "") 
+    if err != nil { return err }
+    
+    tmpFile := filepath.Join(os.TempDir(), "jar-cart.tmp")
+    defer os.Remove(tmpFile)
 
-	if err := DownloadAndVerify(release, tmpFile); err != nil { return err }
-	return ApplyBinarySwap(tmpFile)
+    if err := DownloadAndVerify(release, tmpFile); err != nil { return err }
+    return ApplyBinarySwap(tmpFile)
 }
 
 func SelfUpdate(currentVersion string) error {
-	logger := log.New(os.Stderr)
-	logger.Info("Checking GitHub for latest release...")
+    logger := log.New(os.Stderr)
+    logger.Info("Checking GitHub for latest release...")
+    release, err := FetchReleaseMetadata("latest") 
+    if err != nil {
+        return err
+    }
 
-	release, err := FetchReleaseMetadata("latest")
-	if err != nil {
-		return err
-	}
+    c := normalizeVersion(currentVersion)
+    l := normalizeVersion(release.TagName)
 
-	c := currentVersion
-	if !strings.HasPrefix(c, "v") { c = "v" + c }
-	l := release.TagName
-	if !strings.HasPrefix(l, "v") { l = "v" + l }
+    if semver.Compare(c, l) >= 0 {
+        logger.Info("Already on the latest version", "version", currentVersion)
+        return nil
+    }
 
-	if semver.Compare(c, l) >= 0 {
-		logger.Info("Already on the latest version", "version", currentVersion)
-		return nil
-	}
-
-	logger.Info("Updating to new version", "version", release.TagName)
-	return PerformUpdate(release.TagName)
+    logger.Info("Updating to new version", "version", release.TagName)
+    return PerformUpdate(release.TagName)
 }
 
 func DowngradeTo(targetVersion string) error {

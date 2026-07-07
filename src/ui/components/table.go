@@ -50,6 +50,7 @@ func HelpTable() string {
 		{"sync", "Synchronizes dependencies and provisions project runtimes"},
 		{"add <pkg>", "Adds a dependency to the project manifest"},
 		{"remove <pkg>", "Removes a dependency from the project manifest"},
+		{"audit", "Checks project dependencies for known vulnerabilities"}, // ADDED THIS
 		{"convert <type>", "Converts manifests between supported formats (json/xml)"},
 		{"run <path> [-- args...]", "Compiles and runs a project, forwarding application arguments"},
 		{"run-jar <jar> [-- args...]", "Runs a JAR, forwarding application arguments"},

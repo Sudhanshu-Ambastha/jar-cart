@@ -2,6 +2,43 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2026-07-07
+
+### 🚀 Added
+
+#### 🔒 Dependency Security Auditing
+
+- Introduced the **`audit`** command to scan project dependencies for known security vulnerabilities using the **OSV API**.
+- Provides proactive vulnerability detection to help identify affected dependencies before deployment.
+
+#### 📊 Detailed Vulnerability Reporting
+
+- Added real-time vulnerability reports directly in the CLI.
+- Displays vulnerability summaries, affected packages, and severity levels for easier assessment and remediation.
+
+### ⚡ Improved
+
+#### 🔄 Non-Intrusive Update Notifications
+
+- Refactored the update notification system to use a **deferred execution** workflow.
+- Update notifications now appear as a clean footer after command execution, ensuring they never interrupt normal CLI output.
+
+#### 🌐 Update Check Efficiency
+
+- Optimized update checks using **ETag-based caching**.
+- Reduces unnecessary network requests while improving rate-limit compliance and overall responsiveness.
+
+#### 📖 Documentation
+
+- Updated the built-in **Help Table** to document the new `audit` command and its usage.
+
+#### 🛠️ Stability
+
+- Synchronized internal versioning to **v0.5.0**.
+- Improved the reliability and consistency of the background update-check pipeline.
+
+---
+
 ## [0.4.0] - 2026-07-07
 
 ### 🚀 Added

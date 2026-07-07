@@ -65,8 +65,10 @@ _Note: This is version ![Version](https://img.shields.io/github/v/release/Sudhan
 ### 🧠 Intelligent CLI Experience
 
 - **Automatic Entry Point Detection:** Automatically discovers the application's `main()` class.
-- **Flexible Target Resolution:** `run` and `run-jar` intelligently resolve source files, directories, class names, or JARs.
-- **NPM-Style Argument Forwarding:** Use `--` to forward application arguments without conflicting with CLI options.
+- **Flexible Target Resolution:** Intelligently resolves source files, directories, class names, or JAR files for execution.
+- **NPM-Style Argument Forwarding:** Use `--` to pass arguments directly to your application without CLI conflicts.
+- **Non-Intrusive Update Notifications:** Deferred update checks display clean notifications after command execution without interrupting output.
+- **Efficient Update Checks:** Uses **ETag-based caching** with a 30-minute cache window to minimize network usage and improve rate-limit compliance.
 
 ```sh
 jar-cart run src -- --server
@@ -76,6 +78,27 @@ jar-cart optimize dist/app.jar dist/my-runtime
 ### 📜 Custom Script Runner
 
 - **Lifecycle Scripts:** Define reusable commands such as `build`, `test`, or `lint` in your manifest. `jar-cart` automatically executes `pre-` and `post-` lifecycle hooks.
+
+  ### Defining Scripts
+
+  ```json
+  {
+    "project": "my-app",
+    "java_version": "25",
+    "resolution_depth": "full",
+    "scripts": { ... },
+    "dependencies": []
+  }
+  ```
+
+  ### Executing Scripts
+
+  Run your scripts using the `run` command. `jar-cart` automatically triggers `pre-` and `post-` hooks if defined:
+
+  ```bash
+  jar-cart run hello
+  jar-cart run test
+  ```
 
 ### 🔒 Security & Reliability
 
@@ -140,33 +163,6 @@ cd my-app
 
 ---
 
-## 📜 Custom Scripts
-
-`jar-cart` allows you to define project-specific command aliases in your `jar-cart.json` file.
-
-### Defining Scripts
-
-```json
-{
-  "project": "my-app",
-  "java_version": "25",
-  "resolution_depth": "full",
-  "scripts": { ... },
-  "dependencies": []
-}
-```
-
-### Executing Scripts
-
-Run your scripts using the `run` command. `jar-cart` automatically triggers `pre-` and `post-` hooks if defined:
-
-```bash
-jar-cart run hello
-jar-cart run test
-```
-
----
-
 ## 📋 Commands
 
 | Command                      | Description                                                               |
@@ -180,6 +176,7 @@ jar-cart run test
 | `sync`                       | Synchronizes dependencies and provisions project runtimes.                |
 | `add <pkg>`                  | Adds a dependency to the project manifest.                                |
 | `remove <pkg>`               | Removes a dependency from the project manifest.                           |
+| `audit`                      | Checks project dependencies for known vulnerabilities.                    |
 | `convert <type>`             | Converts manifests between supported formats (`json`/`xml`).              |
 | `run <path> [-- args...]`    | Compiles and runs a project, forwarding application arguments.            |
 | `run-jar <jar> [-- args...]` | Runs a JAR, forwarding application arguments.                             |

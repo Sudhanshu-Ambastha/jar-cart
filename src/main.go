@@ -16,7 +16,7 @@ import (
 const (
 	ManifestJSON = "jar-cart.json"
 	ManifestXML  = "jar-cart.xml"
-	Version = "v0.4.0"
+	Version = "v0.5.0"
 )
 
 func printHelp() {
@@ -42,7 +42,8 @@ func isPresentInLib(query string) bool {
 func main() {
 	logger := log.New(os.Stderr)
 	logger.SetLevel(log.InfoLevel)
-
+	needsUpdate, latestVersion := utils.AutoCheckUpdate(Version)
+	
 	if len(os.Args) > 1 {
 		arg := strings.ToLower(os.Args[1])
 		if arg == "--version" || arg == "-v" {
@@ -51,9 +52,11 @@ func main() {
 		}
 	}
 
-	if ok, latest := utils.AutoCheckUpdate(Version); ok {
-		fmt.Println(components.UpdateNotification(Version, latest))
-	}
+	defer func() {
+		if needsUpdate {
+			fmt.Println("\n" + components.UpdateNotification(Version, latestVersion))
+		}
+	}()
 
 	if len(os.Args) < 2 {
 		printHelp()
@@ -69,6 +72,7 @@ func main() {
 			logger.Info("Done", "duration", elapsed.Round(time.Millisecond).String())
 		}
 	}()
+
 	manifestFile := ManifestJSON
 	if _, err := os.Stat(ManifestXML); err == nil && os.Getenv("JAR_CART_XML") == "1" {
 		manifestFile = ManifestXML
@@ -271,6 +275,31 @@ func main() {
 			logger.Error("Cleanup failed", "error", err)
 		}
 		logger.Info("Dependencies synced successfully.")
+
+	case "audit":
+		manifest, err := utils.LoadManifest(manifestFile)
+		if err != nil {
+			logger.Fatal("Failed to load manifest for audit", "error", err)
+		}
+
+		logger.Info("Auditing dependencies for vulnerabilities...")
+		vulns, err := utils.CheckVulnerabilities(manifest.Dependencies)
+		if err != nil {
+			logger.Error("Audit request failed", "error", err)
+			return
+		}
+
+		found := false
+		for _, result := range vulns.Results {
+			for _, v := range result.Vulns {
+				found = true
+				fmt.Printf("⚠️  [%s] %s\n   %s\n\n", v.ID, v.Summary, v.Details)
+			}
+		}
+
+		if !found {
+			fmt.Println("✅ No known vulnerabilities found.")
+		}
 
 	case "add":
 		if len(filteredArgs) < 1 {
