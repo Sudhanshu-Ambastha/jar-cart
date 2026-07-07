@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/Sudhanshu-Ambastha/jar-cart/src/models"
 	"github.com/charmbracelet/log"
 )
 
@@ -152,6 +153,54 @@ func getMainClassFromJar(jarPath string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("Main-Class attribute not found in manifest")
+}
+
+func OptimizeJarForDeployment(jarPath string, outputDir string) error {
+	if !FileExists(jarPath) {
+		return fmt.Errorf("JAR file not found: %s. Did you forget to run 'jar-cart build'?", jarPath)
+	}
+
+	if _, err := os.Stat(outputDir); err == nil {
+		log.Info("Cleaning existing output directory...", "path", outputDir)
+		if err := os.RemoveAll(outputDir); err != nil {
+			return fmt.Errorf("failed to clean output directory: %w", err)
+		}
+	}
+
+	optimizer := &JLinkOptimizer{JarPath: jarPath}
+	javaVersion := "21"
+	cfg := models.OptimizationConfig{
+		Compression: 2,
+		StripDebug:  true,
+		StripNative: false,
+	}
+
+	manifestFiles := []string{"jar-cart.json", "jar-cart.xml"}
+	for _, file := range manifestFiles {
+		if FileExists(file) {
+			manifest, err := LoadManifest(file)
+			if err == nil {
+				if manifest.JavaVersion != "" {
+					javaVersion = manifest.JavaVersion
+				}
+				if manifest.Optimize.Compression != 0 {
+					cfg.Compression = manifest.Optimize.Compression
+				}
+				cfg.StripDebug = manifest.Optimize.StripDebug
+				cfg.StripNative = manifest.Optimize.StripNative
+				break
+			}
+		}
+	}
+	
+	log.Info("Analyzing dependencies with jdeps...", "version", javaVersion)
+	modules, err := optimizer.AnalyzeDependencies(javaVersion)
+	if err != nil {
+		return err
+	}
+	
+	log.Info("Trimming runtime with jlink...", "modules", modules, "compression", cfg.Compression)
+	return optimizer.CreateCustomRuntime(modules, outputDir, cfg)
 }
 
 func RunJar(target string, mainClass string, appArgs []string) error {

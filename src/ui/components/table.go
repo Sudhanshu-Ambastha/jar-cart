@@ -56,6 +56,7 @@ func HelpTable() string {
 		{"decompile <jar>", "Decompiles JARs using Vineflower, CFR, or Procyon"},
 		{"watch <path> [-- args...]", "Watches, recompiles, and restarts while preserving application arguments"},
 		{"build", "Packages the project into a portable Fat JAR"},
+		{"optimize <jar> <out>", "Creates a custom runtime (manifest-configured)"},
 		{"self-update [version]", "Updates jar-cart or switches to a specific release"},
 		{"help", "Displays this documentation"},
 	}

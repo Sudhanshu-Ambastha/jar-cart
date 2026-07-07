@@ -15,6 +15,12 @@ type Script struct {
 	Command string `xml:",chardata"`
 }
 
+type OptimizationConfig struct {
+    Compression int  `json:"compression" xml:"compression"`
+    StripDebug  bool `json:"strip_debug" xml:"strip_debug"`
+    StripNative bool `json:"strip_native" xml:"strip_native"`
+}
+
 type Manifest struct {
 	XMLName      xml.Name          `json:"-" xml:"Manifest"`
 	Project      string            `json:"project" xml:"project"`
@@ -23,6 +29,7 @@ type Manifest struct {
 	Scripts      map[string]string `json:"scripts,omitempty" xml:"-"`
 	Dependencies []Dependency      `json:"dependencies" xml:"dependencies>dependency"`
 	XMLScripts   []Script          `json:"-" xml:"scripts>script"`
+	Optimize     OptimizationConfig `json:"optimize" xml:"optimize"`
 }
 
 type Pom struct {

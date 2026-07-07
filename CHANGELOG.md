@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-07-07
+
+### 🚀 Added
+
+#### Manifest-Driven Runtime Optimization
+
+- Introduced `optimize` configuration object in `jar-cart.json` and `jar-cart.xml`.
+- Users can now declaratively control `compression`, `strip_debug` (symbols), and `strip_native` (native symbols) settings directly from the manifest.
+- Integrated `models` package to provide type-safe optimization configuration across the codebase.
+
+### ⚡ Improved
+
+#### Optimized Deployment Pipeline
+
+- Enhanced `optimize` command to dynamically resolve optimization profiles based on the project manifest.
+- Improved runtime packaging with safety checks (automatic cleaning, existence validation, and manifest-aware version resolution).
+- Achieved ~87% reduction in runtime footprint (from ~290MB to ~12MB) for standard Java applications.
+- Unified `JLinkOptimizer` to utilize shared configuration models, reducing hardcoded flags.
+
+#### Performance Telemetry
+
+- Implemented global command execution timing.
+- Added automatic duration tracking (`Done duration=Xs`) to all CLI commands for improved developer feedback and performance monitoring.
+
+#### Metadata & Consistency
+
+- Synchronized internal versioning system (`v0.4.0`) across all metadata files and build resources.
+- Updated `HelpTable()` documentation to reflect the new manifest-configured workflow for the `optimize` command.
+
+---
+
 ## [0.3.2] - 2026-07-06
 
 ### 🐛 Fixed
