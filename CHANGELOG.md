@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.1] - 2026-07-08
+
+### 🛠️ Fixed
+
+#### 🛡️ Dependency Management
+- **Deduplication:** Implemented strict validation to prevent duplicate dependency entries from being added to the manifest.
+- **Integrity Enforcement:** Enhanced the synchronization workflow to automatically detect and purge redundant or invalid dependencies, ensuring a clean and consistent `lib/` environment. 🔍✅
+
+---
+
 ## [0.5.0] - 2026-07-07
 
 ### 🚀 Added

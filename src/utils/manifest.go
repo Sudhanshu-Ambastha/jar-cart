@@ -66,19 +66,20 @@ func GenerateLockFile(projectDir string, manifest *models.Manifest) error {
 }
 
 func updateOrAddDependency(manifest *models.Manifest, newDep models.Dependency) bool {
-	for i, d := range manifest.Dependencies {
-		if d.Group == newDep.Group && d.Library == newDep.Library {
-			if manifest.Dependencies[i].Version != newDep.Version {
-				log.Info("Updating dependency version", "old", d.Version, "new", newDep.Version)
-				manifest.Dependencies[i].Version = newDep.Version
-				return true
-			}
-			log.Info("Dependency already exists. Checking synchronization...")
-			return false
-		}
-	}
-	manifest.Dependencies = append(manifest.Dependencies, newDep)
-	return true
+    for i, d := range manifest.Dependencies {
+        if d.Group == newDep.Group && d.Library == newDep.Library {
+            if d.Version != newDep.Version {
+                log.Info("Updating dependency", "artifact", d.Group+":"+d.Library, "old", d.Version, "new", newDep.Version)
+                manifest.Dependencies[i].Version = newDep.Version
+                return true
+            }
+            log.Info("Dependency already exists with same version. No changes needed.")
+            return false
+        }
+    }
+    manifest.Dependencies = append(manifest.Dependencies, newDep)
+    log.Info("Added new dependency", "artifact", newDep.Group+":"+newDep.Library, "version", newDep.Version)
+    return true
 }
 
 func refreshLockFile() error {

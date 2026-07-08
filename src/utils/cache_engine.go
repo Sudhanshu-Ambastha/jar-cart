@@ -58,29 +58,27 @@ func CleanupLibDir(projectDir string, expectedEntries map[string]LockEntry) erro
 		return err
 	}
 
-	expectedFiles := make(map[string]bool)
+	expectedFileNames := make(map[string]bool)
 	for _, entry := range expectedEntries {
-		expectedFiles[filepath.Base(entry.Path)] = true
+		expectedFileNames[filepath.Base(entry.Path)] = true
 	}
-
-	log.Info("Scanning lib/ for cleanup", "total_files", len(files))
 
 	for _, file := range files {
 		fileName := file.Name()
 		if file.IsDir() || filepath.Ext(fileName) != ".jar" {
 			continue
 		}
-
-		if !expectedFiles[fileName] {
-			log.Warn("Removing unused dependency", "file", fileName)
+		if !expectedFileNames[fileName] {
+			log.Warn("Removing stale or extraneous dependency", "file", fileName)
 			fullPath := filepath.Join(libDir, fileName)
 			if err := os.Remove(fullPath); err != nil {
 				log.Error("Failed to remove file", "file", fileName, "error", err)
+				return err
 			}
-		} else {
-			log.Debug("Keeping dependency", "file", fileName)
 		}
 	}
+	
+	log.Info("Cleanup complete. lib/ is in sync with manifest.")
 	return nil
 }
 
@@ -117,7 +115,6 @@ func GetTransitiveDependencies(dep models.Dependency) ([]models.Dependency, erro
 func ResolveParallelDependencies(projectDir string, dependencies []models.Dependency, resolveTransitives bool) (map[string]LockEntry, error) {
 	homeDir, _ := os.UserHomeDir()
 	globalCacheDir := filepath.Join(homeDir, ".jar-cart", "cache")
-
 	fullDepMap := make(map[string]models.Dependency)
 	queue := append([]models.Dependency{}, dependencies...)
 
@@ -135,8 +132,6 @@ func ResolveParallelDependencies(projectDir string, dependencies []models.Depend
 				} else {
 					log.Warn("Could not resolve transitives (POM missing)", "dep", key)
 				}
-			} else if !resolveTransitives {
-				log.Debug("Shallow mode: Skipping transitive resolution", "dep", key)
 			}
 		}
 	}
@@ -167,13 +162,11 @@ func ResolveParallelDependencies(projectDir string, dependencies []models.Depend
 	close(tasksChan)
 	wg.Wait()
 	close(resultsChan)
-	
 	lockEntries := make(map[string]LockEntry)
 	for res := range resultsChan {
 		if res.Error != nil {
 			continue 
 		}
-		
 		jarName := fmt.Sprintf("%s-%s.jar", res.Dep.Library, res.Dep.Version)
 		jarPath := filepath.Join(projectDir, "lib", jarName)
 		
@@ -232,31 +225,28 @@ func linkFromCacheToLib(src, dst string) error {
 }
 
 func processDependencyExecution(dep models.Dependency, globalCacheDir, localLibDir string) error {
-    jarName := fmt.Sprintf("%s-%s.jar", dep.Library, dep.Version)
-    targetLocalJarPath := filepath.Join(localLibDir, jarName)
-    if isFileValid(targetLocalJarPath, "") {
-        return nil
-    }
+	jarName := fmt.Sprintf("%s-%s.jar", dep.Library, dep.Version)
+	targetLocalJarPath := filepath.Join(localLibDir, jarName)
 
-    sanitizedGroup := strings.ReplaceAll(dep.Group, ".", string(os.PathSeparator))
-    cacheFolder := filepath.Join(globalCacheDir, sanitizedGroup)
-    cachedJarPath := filepath.Join(cacheFolder, jarName)
-    
-    if isFileValid(cachedJarPath, "") {
-        return linkFromCacheToLib(cachedJarPath, targetLocalJarPath)
-    }
-    if !IsOnline() {
-        return fmt.Errorf("network offline and '%s' not in cache", jarName)
-    }
+	if isFileValid(targetLocalJarPath, "") {
+		return nil
+	}
 
-    os.MkdirAll(cacheFolder, 0755)
-    if err := downloadWithMirrors(dep, cachedJarPath); err != nil {
-        return err
-    }
+	sanitizedGroup := strings.ReplaceAll(dep.Group, ".", string(os.PathSeparator))
+	cacheFolder := filepath.Join(globalCacheDir, sanitizedGroup)
+	cachedJarPath := filepath.Join(cacheFolder, jarName)
 
-    return linkFromCacheToLib(cachedJarPath, targetLocalJarPath)
+	if !isFileValid(cachedJarPath, "") {
+		if !IsOnline() {
+			return fmt.Errorf("network offline and artifact not in cache: %s", jarName)
+		}
+		os.MkdirAll(cacheFolder, 0755)
+		if err := downloadWithMirrors(dep, cachedJarPath); err != nil {
+			return err
+		}
+	}
+	return linkFromCacheToLib(cachedJarPath, targetLocalJarPath)
 }
-
 func streamAndCacheAsset(url, targetPath string) error {
 	resp, err := http.Get(url)
 	if err != nil {
