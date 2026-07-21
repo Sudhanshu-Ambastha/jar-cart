@@ -12,7 +12,7 @@ esac
 case "$OS" in
     Linux)  PLATFORM="linux"; EXTENSION="tar.gz" ;;
     Darwin) PLATFORM="macos"; EXTENSION="tar.gz" ;;
-    *) 
+    *)     
         if echo "$OS" | grep -qE "MINGW|MSYS|CYGWIN"; then
             PLATFORM="windows"; EXTENSION="zip"
         else
@@ -77,6 +77,14 @@ else
     unzip -qo "$TMP_DIR/$FILE_NAME" -d "$INSTALL_DIR"
 fi
 
+BINARY_NAME="jar-cart"
+if [ -f "$INSTALL_DIR/jar-cart" ]; then
+    chmod +x "$INSTALL_DIR/jar-cart"
+    ln -sf "$INSTALL_DIR/jar-cart" "$INSTALL_DIR/jc"
+elif [ -f "$INSTALL_DIR/jar-cart.exe" ]; then
+    ln -sf "$INSTALL_DIR/jar-cart.exe" "$INSTALL_DIR/jc.exe"
+fi
+
 rm -rf "$TMP_DIR"
 
 echo "---"
@@ -84,3 +92,4 @@ echo "✨ jar-cart $VERSION successfully installed!"
 echo "👉 Add this to your shell config (~/.bashrc or ~/.zshrc):"
 echo '    export PATH="$HOME/.jar-cart/bin:$PATH"'
 echo "👉 Then run: source ~/.bashrc (or your config file)"
+echo "🚀 You can now use both 'jar-cart' and the short 'jc' alias!"

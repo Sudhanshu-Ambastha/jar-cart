@@ -8,9 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"text/template"
 	"time"
@@ -19,6 +17,15 @@ import (
 )
 
 var Verbose bool
+
+type SkeletonStrategy struct {
+	Directories []string          `json:"directories"`
+	Files       map[string]string `json:"files"`
+}
+
+type RemoteRegistry struct {
+	Strategies map[string]SkeletonStrategy `json:"strategies"`
+}
 
 type ProjectData struct {
 	Name  string
@@ -50,9 +57,82 @@ func CleanCache() error {
 	return os.RemoveAll(filepath.Join(home, ".jar-cart", "cache"))
 }
 
-func HandleInit(projectName, manifestType, javaVersion string) (string, error) {
-	var targetDir string
+func getLocalRegistryPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".jar-cart", "registry.json")
+}
 
+func fetchAndCacheRegistry() RemoteRegistry {
+	cacheFile := getLocalRegistryPath()
+	os.MkdirAll(filepath.Dir(cacheFile), 0755)
+
+	info, err := os.Stat(cacheFile)
+	if err != nil || time.Since(info.ModTime()) > 24*time.Hour {
+		logDebug("Fetching fresh strategy registry from remote: %s", getRegistryURL())
+		req, _ := http.NewRequest("GET", getRegistryURL(), nil)
+		if resp, err := http.DefaultClient.Do(req); err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				if out, err := os.Create(cacheFile + ".tmp"); err == nil {
+					_, _ = io.Copy(out, resp.Body)
+					out.Close()
+					_ = os.Rename(cacheFile+".tmp", cacheFile)
+				}
+			}
+		}
+	}
+
+	content, err := os.ReadFile(cacheFile)
+	var reg RemoteRegistry
+	if err == nil {
+		_ = json.Unmarshal(content, &reg)
+	}
+
+	if reg.Strategies == nil {
+		reg.Strategies = getDefaultFallbackStrategies()
+	}
+	return reg
+}
+
+func getDefaultFallbackStrategies() map[string]SkeletonStrategy {
+	return map[string]SkeletonStrategy{
+		"flat": {
+			Directories: []string{"src"},
+			Files: map[string]string{
+				"src/App.java": "package src;\n\npublic class App {\n    public static void main(String[] args) {\n        System.out.println(\"Hello from jar-cart! 🚀\");\n    }\n}",
+			},
+		},
+		"backend": {
+			Directories: []string{
+				"src/com/srs/db",
+				"src/db",
+				"src/resources",
+				"src/sql",
+				"lib",
+				"bin",
+			},
+			Files: map[string]string{
+				"src/com/srs/App.java": `package com.srs;
+
+public class App {
+    public static void main(String[] args) {
+        System.out.println("Backend application initialized successfully! 🏢");
+    }
+}`,
+				"src/com/srs/db/DBconnections.java": `package com.srs.db;
+
+public class DBconnections {
+    // TODO: Implement database connection management
+}`,
+				".env": `PORT=8080
+DB_PATH=src/db/srs.db`,
+			},
+		},
+	}
+}
+
+func HandleInit(projectName, manifestType, javaVersion, strategy string) (string, error) {
+	var targetDir string
 	if projectName == "." {
 		targetDir, _ = os.Getwd()
 	} else {
@@ -62,39 +142,39 @@ func HandleInit(projectName, manifestType, javaVersion string) (string, error) {
 		}
 	}
 
+	if strategy == "" {
+		strategy = "flat"
+	}
+
+	registry := fetchAndCacheRegistry()
+	strat, exists := registry.Strategies[strategy]
+	if !exists {
+		strat = registry.Strategies["flat"]
+	}
+
+	for _, subDir := range strat.Directories {
+		fullSub := targetDir
+		if subDir != "" {
+			fullSub = filepath.Join(targetDir, subDir)
+		}
+		_ = os.MkdirAll(fullSub, 0755)
+	}
+
+	for relPath, content := range strat.Files {
+		fullFilePath := filepath.Join(targetDir, relPath)
+		_ = os.MkdirAll(filepath.Dir(fullFilePath), 0755)
+		_ = os.WriteFile(fullFilePath, []byte(content), 0644)
+	}
+
 	jsonPath := filepath.Join(targetDir, "jar-cart.json")
 	xmlPath := filepath.Join(targetDir, "jar-cart.xml")
-
 	if manifestType == "xml" {
 		_ = os.Remove(jsonPath)
-	} else {
-		_ = os.Remove(xmlPath)
-	}
-
-	for _, dir := range []string{"bin", "lib", "src"} {
-		if err := os.MkdirAll(filepath.Join(targetDir, dir), 0755); err != nil {
-			return targetDir, err
-		}
-	}
-	
-	appCode := `package src;
-
-public class App {
-    public static void main(String[] args) {
-        System.out.println("Hello, jar-cart! Your project is ready. 🚀");
-    }
-}`
-	if err := os.WriteFile(filepath.Join(targetDir, "src", "App.java"), []byte(appCode), 0644); err != nil {
-		return targetDir, err
-	}
-
-	var err error
-	if manifestType == "xml" {
-		xmlContent := `<?xml version="1.0" encoding="UTF-8"?>
+		xmlContent := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <Manifest>
-    <project>` + filepath.Base(targetDir) + `</project>
-    <java_version>` + javaVersion + `</java_version>
-    <strategy>Include All Dependencies</strategy>
+    <project>%s</project>
+    <java_version>%s</java_version>
+    <strategy>%s</strategy>
     <scripts>
         <script name="hello">echo 'Hello from jar-cart!'</script>
         <script name="pretest">echo 'Compiling tests...'</script>
@@ -102,30 +182,115 @@ public class App {
         <script name="posttest">echo 'Cleaning up test artifacts...'</script>
     </scripts>
     <dependencies></dependencies>
-</Manifest>`
-		err = os.WriteFile(xmlPath, []byte(xmlContent), 0644)
+</Manifest>`, filepath.Base(targetDir), javaVersion, strategy)
+		_ = os.WriteFile(xmlPath, []byte(xmlContent), 0644)
 	} else {
+		_ = os.Remove(xmlPath)
 		config := models.Manifest{
 			Project:         filepath.Base(targetDir),
 			JavaVersion:     javaVersion,
 			ResolutionDepth: "full",
 			Scripts: map[string]string{
-				"hello":   "echo 'Hello from jar-cart!'",
-				"pretest": "echo 'Compiling tests...'",
-				"test":    "echo 'Running tests...'",
+				"hello":    "echo 'Hello from jar-cart!'",
+				"pretest":  "echo 'Compiling tests...'",
+				"test":     "echo 'Running tests...'",
 				"posttest": "echo 'Cleaning up test artifacts...'",
 			},
 			Dependencies: []models.Dependency{},
 		}
-		
-		var configData []byte
-		configData, err = json.MarshalIndent(config, "", "    ")
-		if err == nil {
-			err = os.WriteFile(jsonPath, configData, 0644)
+		if data, err := json.MarshalIndent(config, "", "    "); err == nil {
+			_ = os.WriteFile(jsonPath, data, 0644)
 		}
 	}
+
+	hashFiles := GetSourceFiles(targetDir)
+	if hash, err := CalculateProjectHash(hashFiles); err == nil {
+		cartDir := filepath.Join(targetDir, ".jar-cart")
+		_ = os.MkdirAll(cartDir, 0755)
+		_ = os.WriteFile(filepath.Join(cartDir, "last_build.hash"), hash[:], 0644)
+	}
+
+	return targetDir, nil
+}
+
+func RegisterCustomTemplate(templateKey string, projectPath string) error {
+	registry := fetchAndCacheRegistry()
+	dirs := []string{}
+	files := make(map[string]string)
+
+	absRoot, _ := filepath.Abs(projectPath)
+	_ = filepath.Walk(absRoot, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		rel, _ := filepath.Rel(absRoot, path)
+		if rel == "." || strings.HasPrefix(rel, ".jar-cart") || strings.HasPrefix(rel, "bin") || strings.HasPrefix(rel, "lib") {
+			return nil
+		}
+		if info.IsDir() {
+			dirs = append(dirs, rel)
+		} else {
+			baseName := filepath.Base(rel)
+			if baseName == "jar-cart.json" || baseName == "jar-cart.xml" || baseName == "jar-cart.lock" || baseName == "LICENSE" {
+				return nil
+			}
+
+			ext := strings.ToLower(filepath.Ext(rel))
+			if ext == ".java" || ext == ".properties" || ext == ".env" || ext == ".yml" || ext == ".yaml" || ext == ".sql" {
+				if content, err := os.ReadFile(path); err == nil {
+					files[rel] = string(content)
+				}
+			}
+		}
+		return nil
+	})
+
+	registry.Strategies[templateKey] = SkeletonStrategy{
+		Directories: dirs,
+		Files:       files,
+	}
+
+	localPath := getLocalRegistryPath()
+	if data, err := json.MarshalIndent(registry, "", "    "); err == nil {
+		return os.WriteFile(localPath, data, 0644)
+	}
+	return nil
+}
+
+func ListCustomTemplates() error {
+	registry := fetchAndCacheRegistry()
 	
-	return targetDir, err
+	fmt.Println("\n📦 Available Templates in Local Registry:")
+	fmt.Println("----------------------------------------")
+	
+	if len(registry.Strategies) == 0 {
+		fmt.Println("  (No templates registered)")
+		return nil
+	}
+
+	for key, strategy := range registry.Strategies {
+		fmt.Printf("🔹 Key: %s\n", key)
+		fmt.Printf("   ├── Directories: %d tracked\n", len(strategy.Directories))
+		fmt.Printf("   └── Files:       %d tracked\n", len(strategy.Files))
+		fmt.Println()
+	}
+	return nil
+}
+
+func RemoveCustomTemplate(templateKey string) error {
+	registry := fetchAndCacheRegistry()
+
+	if _, exists := registry.Strategies[templateKey]; !exists {
+		return fmt.Errorf("template '%s' not found in registry", templateKey)
+	}
+
+	delete(registry.Strategies, templateKey)
+
+	localPath := getLocalRegistryPath()
+	if data, err := json.MarshalIndent(registry, "", "    "); err == nil {
+		return os.WriteFile(localPath, data, 0644)
+	}
+	return nil
 }
 
 func ExecuteScaffold(projectDir, projectName, framework, strategy, lang, javaVersion, manifestType string) error {
@@ -141,8 +306,8 @@ func ExecuteScaffold(projectDir, projectName, framework, strategy, lang, javaVer
 	srcPath := filepath.Join(projectDir, "src")
 	if _, err := os.Stat(manifestPath); os.IsNotExist(err) && manifestType == "json" {
 		m := models.Manifest{
-			Project:     projectName,
-			JavaVersion: javaVersion,
+			Project:         projectName,
+			JavaVersion:     javaVersion,
 			ResolutionDepth: "full",
 			Scripts: map[string]string{
 				"hello":    "echo 'Hello from jar-cart!'",
@@ -157,14 +322,7 @@ func ExecuteScaffold(projectDir, projectName, framework, strategy, lang, javaVer
 	}
 
 	os.MkdirAll(srcPath, 0755)
-	code := `package src;
 
-public class App { 
-    public static void main(String[] args) { 
-        System.out.println("Hello from jar-cart!"); 
-    } 
-}`
-	_ = os.WriteFile(filepath.Join(srcPath, "App.java"), []byte(code), 0644)
 	if strategy == "no-build" {
 		return nil
 	}
@@ -249,25 +407,4 @@ func unzipStrippingRoot(src, dest string) error {
 		rc.Close()
 	}
 	return nil
-}
-
-func generateFallbackTemplate(projectDir, projectName, strategy string) error {
-	srcPath := filepath.Join(projectDir, "src")
-	os.MkdirAll(srcPath, 0755)
-	code := `package src;
-
-public class App { 
-    public static void main(String[] args) { 
-        System.out.println("Hello from jar-cart!"); 
-    } 
-}`
-	return os.WriteFile(filepath.Join(srcPath, "App.java"), []byte(code), 0644)
-}
-
-func LaunchWorkspace(baseDir string) {
-	cmd := exec.Command("code", baseDir)
-	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd", "/c", "code", baseDir)
-	}
-	cmd.Start()
 }

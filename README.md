@@ -57,6 +57,12 @@ _Note: This is version ![Version](https://img.shields.io/github/v/release/Sudhan
 - **Project-Level Version Locking:** Pin a specific JDK version per project. `jar-cart` automatically provisions and manages isolated runtimes so every project runs with the exact Java version it was built against.
 - **Automatic Runtime Discovery:** Detects and uses the correct project manifest (`jar-cart.json` or `jar-cart.xml`) for consistent JDK resolution.
 
+### 🏗️ Multi-Module Workspaces
+
+- **Monorepo & Enterprise Scale:** Group multiple independent modules using `jar-cart.workspace.json`.
+- **Topological Ordering:** Automatically resolves module dependencies and compiles projects in correct order.
+- **Workspace-Wide Operations:** Synchronize dependencies, audit vulnerabilities, and run builds across all modules with single commands (`jc sync`, `jc audit`, `jc build`).
+
 ### 🛠 Reverse Engineering & Patching
 
 - **Integrated Decompilation:** Automatically provisions and manages Vineflower, CFR, and Procyon.
@@ -153,6 +159,24 @@ iwr https://raw.githubusercontent.com/Sudhanshu-Ambastha/jar-cart/main/scripts/i
 ```sh
 VERSION=v0.2.1 curl -sSL https://raw.githubusercontent.com/Sudhanshu-Ambastha/jar-cart/main/scripts/install.sh | bash
 ```
+
+**Linux / macOS (Homebrew):**
+
+If you use Homebrew, you can install jar-cart using your personal tap:
+
+- Add the tap
+  ```Bash
+  brew tap Sudhanshu-Ambastha/tap
+  ```
+- Trust the tap (one-time security requirement)
+  ```Bash
+  brew trust Sudhanshu-Ambastha/tap
+  ```
+- Install the latest version
+  ```bash
+  brew install jar-cart
+  ```
+  > Note: If you need to pin to a specific minor release line (e.g., v0.4.x), you can install the versioned formula: `brew install jar-cart@0.4`.
 
 ### Initialize a Project
 

@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/xml"
+	"time"
 )
 
 type Dependency struct {
@@ -40,4 +41,22 @@ type Pom struct {
 		Version    string `xml:"version"`
 		Scope      string `xml:"scope"`
 	} `xml:"dependencies>dependency"`
+}
+
+type ModuleConfig struct {
+	Path      string   `json:"path"`
+	DependsOn []string `json:"dependsOn,omitempty"`
+}
+
+type WorkspaceManifest struct {
+	Modules map[string]ModuleConfig `json:"modules"`
+}
+
+type BuildStatus struct {
+	LastBuildHash string    `json:"last_build_hash"`
+	LastRunTime   time.Time `json:"last_run_time"`
+}
+
+type WorkspaceState struct {
+	ModuleStatuses map[string]BuildStatus `json:"module_statuses"`
 }

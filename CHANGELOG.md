@@ -2,11 +2,64 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.0] - 2026-07-21
+
+### 🚀 Added
+
+#### 📦 Distribution & CLI Aliases
+
+- Added official package manager distribution support for **Homebrew (`brew`)** and **Chocolatey (`choco`)**.
+- Enabled the short **`jc` CLI alias** support when installed via these package managers.
+
+#### 🏗️ Flexible Project Scaffolding & Modes
+
+- Introduced diverse project initialization strategies and templates during `init`:
+  - **`flat`**: Ideal for simple, single-directory scripts and lightweight tools.
+  - **`backend`**: Structured layout tailored for server-side applications, complete with pre-configured source packages, resource directories, and environment templates.
+- Added custom local template registration, allowing teams to bootstrap projects tailored to their exact architecture standards.
+
+#### 🧠 Multi-Module Workspace Orchestrator
+
+- Added comprehensive **workspace-wide command execution** across all active modules in `jar-cart.workspace.json`.
+- Introduced `RunWorkspaceScript`, supporting polymorphic execution of custom scripts and their `pre`/`post` lifecycle hooks across all target modules sequentially.
+- Implemented `RunWorkspaceBuild` for automated multi-module builds using topological sorting and directory context switching.
+- Added `CheckWorkspaceVulnerabilities` to aggregate and audit dependencies across all workspace modules simultaneously via the OSV batch API.
+
+---
+
+### ⚡ Improved
+
+#### 🔗 Dependency Resolution & Content-Addressable Cache
+
+- Refactored the engine to leverage **Google's `deps.dev` Insights API (v3)** with a content-addressable storage (CAS) cache architecture, eliminating fragile XML/POM parsing while delivering faster, deterministic, and transitive dependency resolution.
+- Integrated `errgroup` for concurrent dependency processing utilizing multi-core CPUs.
+
+#### ⚙️ Build & Script Orchestration
+
+- Enhanced CLI documentation and reference tables to clearly outline workspace-enabled commands and script integrations.
+
+---
+
+### 🛠️ Fixed
+
+#### 🛡️ Stability & Compatibility
+
+- Removed legacy wrappers and resolved build-time `undefined` errors.
+- Fixed manifest path and variable handling across workspace initialization and scaffolding functions (`HandleInit`).
+- Improved overall build stability, error logging, and cross-platform reliability.
+
+---
+
+#### 📈 Highlights
+
+This release marks a major architectural milestone for **jar-cart**. With native multi-module workspaces, full CAS caching, versatile project scaffolding modes (`flat`, `backend`), and effortless installation via `brew` and `choco` (plus the `jc` alias), managing large-scale Java projects is faster and more flexible than ever.
+
 ## [0.5.1] - 2026-07-08
 
 ### 🛠️ Fixed
 
 #### 🛡️ Dependency Management
+
 - **Deduplication:** Implemented strict validation to prevent duplicate dependency entries from being added to the manifest.
 - **Integrity Enforcement:** Enhanced the synchronization workflow to automatically detect and purge redundant or invalid dependencies, ensuring a clean and consistent `lib/` environment. 🔍✅
 

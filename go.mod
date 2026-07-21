@@ -6,6 +6,8 @@ require (
 	charm.land/bubbles/v2 v2.1.0
 	charm.land/bubbletea/v2 v2.0.7
 	charm.land/lipgloss/v2 v2.0.4
+	deps.dev/api/v3 v3.0.0-20260708003622-ba1304923509
+	deps.dev/util/resolve v0.0.0-20260708003622-ba1304923509
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/huh v1.0.0
@@ -14,9 +16,13 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/manifoldco/promptui v0.9.0
 	golang.org/x/mod v0.37.0
+	golang.org/x/sync v0.20.0
+	google.golang.org/grpc v1.82.1
 )
 
 require (
+	deps.dev/util/maven v0.0.0-20240322043601-ff53416fec6a // indirect
+	deps.dev/util/semver v0.0.0-20241230231135-52b7655a522f // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/catppuccin/go v0.3.0 // indirect
@@ -47,7 +53,10 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
-	golang.org/x/sync v0.20.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/text v0.23.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20260715232425-e75dac1f907d // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260715232425-e75dac1f907d // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 )

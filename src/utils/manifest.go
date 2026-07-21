@@ -39,18 +39,11 @@ func ParseManifest(filePath string) ([]models.Dependency, error) {
 
 func GenerateLockFile(projectDir string, manifest *models.Manifest) error {
 	log.Info("Generating/Updating lockfile...")
-	shouldResolve := IsFullResolution(manifest)
-	mode := strings.ToLower(strings.TrimSpace(manifest.ResolutionDepth))
-	if mode == "" {
-		mode = "full"
-	}
-
-	log.Info("Lockfile resolution mode", "mode", mode)
-
+	log.Info("Lockfile resolution mode: full") 
 	lockEntries, err := ResolveParallelDependencies(
 		projectDir,
 		manifest.Dependencies,
-		shouldResolve,
+		true,
 	)
 	if err != nil {
 		return err
@@ -133,9 +126,7 @@ func AddDependency(manifestPath, rawCoordinate string, isDirect bool, libDir str
 	}
 
 	log.Info("Synchronizing dependency", "dep", group+":"+lib)
-	shouldResolve := (IsFullResolution(manifest))
-	
-	if _, err := ResolveParallelDependencies(".", []models.Dependency{newDep}, shouldResolve); err != nil {
+	if _, err := ResolveParallelDependencies(libDir, []models.Dependency{newDep}, true); err != nil {
 		return err
 	}
 
@@ -208,10 +199,14 @@ func RunSync(projectDir string) error {
 		return fmt.Errorf("load manifest error: %v", err)
 	}
 
-	shouldResolve := (IsFullResolution(manifest))
-	log.Info("Resolution mode", "mode", manifest.ResolutionDepth)
+	libDir := filepath.Join(absDir, "lib")
+	log.Info("Targeting lib directory", "path", libDir)
+	
+	if err := os.MkdirAll(libDir, 0755); err != nil {
+		return fmt.Errorf("failed to create lib directory: %v", err)
+	}
 
-	lockEntries, err := ResolveParallelDependencies(absDir, manifest.Dependencies, shouldResolve)
+	lockEntries, err := ResolveParallelDependencies(libDir, manifest.Dependencies, true)
 	if err != nil {
 		return fmt.Errorf("resolve error: %v", err)
 	}

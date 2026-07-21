@@ -61,11 +61,8 @@ jobs:
       - name: Generate Checksum
         shell: bash
         run: |
-          if [ "${{ matrix.os }}" == "windows" ]; then
-            certutil -hashfile "${{ matrix.asset_name }}" SHA256 | grep -v "SHA256" | grep -v "CertUtil" | tr -d '\r\n ' > "${{ matrix.asset_name }}.sha256"
-          else
-            shasum -a 256 "${{ matrix.asset_name }}" | awk '{print $1}' > "${{ matrix.asset_name }}.sha256"
-          fi
+          chmod +x ./scripts/package-checksum.sh
+          ./scripts/package-checksum.sh "${{ matrix.asset_name }}" "${{ matrix.os }}"
 
       - name: Staging Artifact Upload
         uses: actions/upload-artifact@v4
@@ -94,3 +91,84 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
+
+  update-homebrew-tap:
+    name: Update Homebrew Tap
+    needs: publish-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch Linux Asset Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: asset-linux
+          path: ./dist/linux
+
+      - name: Fetch macOS Asset Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: asset-darwin
+          path: ./dist/macos
+
+      - name: Checkout Homebrew Tap Repository
+        uses: actions/checkout@v4
+        with:
+          repository: Sudhanshu-Ambastha/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Run Homebrew Tap Update Script
+        run: |
+          LINUX_SHA256=$(cat ./dist/linux/jar-cart-x86_64-linux.tar.gz.sha256)
+          MACOS_SHA256=$(cat ./dist/macos/jar-cart-x86_64-macos.tar.gz.sha256)
+
+          chmod +x ./scripts/update-homebrew.sh
+          ./scripts/update-homebrew.sh "${{ github.ref_name }}" "$LINUX_SHA256" "$MACOS_SHA256"
+
+      - name: Commit and Push Homebrew Formula Updates
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          MAJOR_MINOR=$(echo "$VERSION" | cut -d. -f1,2)
+
+          chmod +x ./scripts/git-commit-push.sh
+          ./scripts/git-commit-push.sh "tap" "Update jar-cart formulas to ${{ github.ref_name }}" "Formula/jar-cart.rb" "Formula/jar-cart@${MAJOR_MINOR}.rb"
+
+  update-chocolatey:
+    name: Publish to Chocolatey
+    needs: publish-release
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.CHOCOLATEY_REPO_TOKEN }}
+
+      - name: Fetch Windows Asset Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: asset-windows
+          path: ./dist/windows
+
+      - name: Extract Version and Checksum
+        id: vars
+        shell: powershell
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          $sha256 = (Get-Content ./dist/windows/jar-cart-x86_64-windows.zip.sha256).Trim()
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+          echo "sha256=$sha256" >> $env:GITHUB_OUTPUT
+
+      - name: Run Chocolatey Publishing Script
+        shell: powershell
+        run: |
+          ./scripts/publish-choco.ps1 `
+            -Version "${{ steps.vars.outputs.version }}" `
+            -Sha256 "${{ steps.vars.outputs.sha256 }}" `
+            -ApiKey "${{ secrets.CHOCOLATEY_API_KEY }}" `
+            -TagRef "${{ github.ref_name }}"
+
+      - name: Commit and Push Chocolatey Metadata Updates
+        shell: bash
+        run: |
+          chmod +x ./scripts/git-commit-push.sh
+          ./scripts/git-commit-push.sh "." "Update Chocolatey metadata and scripts for ${{ github.ref_name }}" "jc/jc.nuspec" "jc/tools/chocolateyinstall.ps1"
