@@ -57,6 +57,9 @@ try {
     if (Test-Path "$installDir\jar-cart.exe") { 
         Remove-Item "$installDir\jar-cart.exe" -Force -ErrorAction SilentlyContinue 
     }
+    if (Test-Path "$installDir\jc.exe") { 
+        Remove-Item "$installDir\jc.exe" -Force -ErrorAction SilentlyContinue 
+    }
     
     Expand-Archive -Path $zipPath -DestinationPath $installDir -Force
 } catch {
@@ -66,4 +69,10 @@ try {
     Remove-Item $zipPath, $hashPath -ErrorAction SilentlyContinue
 }
 
-Write-Host "✨ Done! jar-cart $Version is successfully installed." -ForegroundColor Green
+$exePath = Join-Path $installDir "jar-cart.exe"
+$jcPath = Join-Path $installDir "jc.exe"
+if (Test-Path $exePath) {
+    Copy-Item $exePath $jcPath -Force
+}
+
+Write-Host "✨ Done! jar-cart $Version is successfully installed with 'jc' alias support." -ForegroundColor Green

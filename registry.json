@@ -1,0 +1,23 @@
+{
+  "strategies": {
+    "flat": {
+      "directories": [""],
+      "files": {
+        "Main.java": "package src;\n\npublic class Main {\n    public static void main(String[] args) {\n        System.out.println(\"Flat layout ready! 🚀\");\n    }\n}"
+      }
+    },
+    "backend": {
+      "directories": [
+        "src/controller",
+        "src/service",
+        "src/repository",
+        "src/model",
+        "src/resources",
+        "src/sql"
+      ],
+      "files": {
+        "src/model/User.java": "package src.model;\n\npublic class User {\n    private String name;\n    public User(String name) { this.name = name; }\n    public String getName() { return name; }\n}"
+      }
+    }
+  }
+}

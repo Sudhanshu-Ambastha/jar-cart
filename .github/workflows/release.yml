@@ -61,11 +61,8 @@ jobs:
       - name: Generate Checksum
         shell: bash
         run: |
-          if [ "${{ matrix.os }}" == "windows" ]; then
-            certutil -hashfile "${{ matrix.asset_name }}" SHA256 | grep -v "SHA256" | grep -v "CertUtil" | tr -d '\r\n ' > "${{ matrix.asset_name }}.sha256"
-          else
-            shasum -a 256 "${{ matrix.asset_name }}" | awk '{print $1}' > "${{ matrix.asset_name }}.sha256"
-          fi
+          chmod +x ./scripts/package-checksum.sh
+          ./scripts/package-checksum.sh "${{ matrix.asset_name }}" "${{ matrix.os }}"
 
       - name: Staging Artifact Upload
         uses: actions/upload-artifact@v4
@@ -94,3 +91,75 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
+
+  update-homebrew-tap:
+    name: Trigger Homebrew Tap Dispatch
+    needs: publish-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Fetch Linux Asset Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: asset-linux
+          path: ./dist/linux
+
+      - name: Fetch macOS Asset Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: asset-darwin
+          path: ./dist/macos
+
+      - name: Run Dispatch Script
+        run: |
+          chmod +x ./scripts/trigger-homebrew-dispatch.sh
+          ./scripts/trigger-homebrew-dispatch.sh "${{ github.ref_name }}" "${{ secrets.HOMEBREW_TAP_TOKEN }}"
+
+  update-chocolatey:
+    name: Publish to Chocolatey
+    needs: publish-release
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code Repository with Token
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Fetch Windows Asset Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: asset-windows
+          path: ./dist/windows
+
+      - name: Extract Version and Checksum
+        id: vars
+        shell: powershell
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          $sha256 = (Get-Content ./dist/windows/jar-cart-x86_64-windows.zip.sha256).Trim()
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+          echo "sha256=$sha256" >> $env:GITHUB_OUTPUT
+
+      - name: Update Metadata Files Locally
+        shell: powershell
+        run: |
+          $version = "${{ steps.vars.outputs.version }}"
+          $sha256 = "${{ steps.vars.outputs.sha256 }}"
+          $tagRef = "${{ github.ref_name }}"
+
+          ./scripts/update-choco-metadata.ps1 -Version $version -Sha256 $sha256 -TagRef $tagRef
+
+      - name: Commit Metadata Changes to GitHub
+        shell: bash
+        run: |
+          chmod +x ./scripts/git-commit-push.sh
+          ./scripts/git-commit-push.sh "." "Update Chocolatey metadata for ${{ github.ref_name }}" "jc/jc.nuspec" "jc/tools/chocolateyinstall.ps1"
+
+      - name: Check Choco, Clean Old Nupkg, Build and Push
+        shell: powershell
+        run: |
+          ./scripts/publish-choco.ps1 `
+            -Version "${{ steps.vars.outputs.version }}" `
+            -ApiKey "${{ secrets.CHOCOLATEY_API_KEY }}"

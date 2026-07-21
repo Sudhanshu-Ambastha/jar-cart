@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>jar-cart</id>
+    <version>0.5.1</version>
+    <title>jar-cart: Lightning-Fast Java Build Orchestrator</title>
+    <authors>Sudhanshu Ambastha</authors>
+    
+    <licenseUrl>https://github.com/Sudhanshu-Ambastha/jar-cart/blob/main/LICENSE</licenseUrl>
+    <projectUrl>https://github.com/Sudhanshu-Ambastha/jar-cart</projectUrl>
+    <packageSourceUrl>https://github.com/Sudhanshu-Ambastha/jar-cart</packageSourceUrl>
+    <releaseNotes>https://github.com/Sudhanshu-Ambastha/jar-cart/releases</releaseNotes>
+    <bugTrackerUrl>https://github.com/Sudhanshu-Ambastha/jar-cart/issues</bugTrackerUrl>
+    
+    <iconUrl>https://raw.githubusercontent.com/Sudhanshu-Ambastha/jar-cart/main/vid/logo.png</iconUrl>
+    <tags>java build-tool orchestrator jar jc packaging</tags>
+    <summary>A fast, cross-platform CLI tool for Java dependency management and build orchestration.</summary>
+    <description>
+# jar-cart (jc)
+A modern, zero-configuration package manager and runner for the Java ecosystem.
+
+**Features:**
+- **Content Addressable Storage (CAS):** Efficiently cache and share artifacts across projects.
+- **Hard-Linking:** Instant dependency linking without duplicating disk usage.
+- **Isolated Runtimes:** Per-project JDK locking via jlink-generated lightweight runtimes.
+- **Unified CLI:** Manage dependencies, compile, watch, and optimize Java applications with a single tool.
+    </description>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

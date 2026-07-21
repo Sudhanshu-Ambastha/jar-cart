@@ -1,7 +1,7 @@
 package utils
 
 import (
-	"encoding/xml"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/Sudhanshu-Ambastha/jar-cart/src/models"
 	"github.com/charmbracelet/log"
+	"golang.org/x/sync/errgroup"
 )
 
 type SyncTask struct {
@@ -27,6 +28,11 @@ func isFileValid(path string, expectedHash string) bool {
 	if err != nil || info.IsDir() {
 		return false
 	}
+
+	if info.Size() < 100 {
+		return false
+	}
+
 	if expectedHash == "" {
 		return true
 	}
@@ -82,104 +88,60 @@ func CleanupLibDir(projectDir string, expectedEntries map[string]LockEntry) erro
 	return nil
 }
 
-func GetTransitiveDependencies(dep models.Dependency) ([]models.Dependency, error) {
-	groupPath := strings.ReplaceAll(dep.Group, ".", "/")
-	url := fmt.Sprintf("https://repo1.maven.org/maven2/%s/%s/%s/%s-%s.pom",
-		groupPath, dep.Library, dep.Version, dep.Library, dep.Version)
+func ResolveParallelDependencies(targetLibDir string, dependencies []models.Dependency, shouldResolve bool) (map[string]LockEntry, error) {
+	homeDir, _ := os.UserHomeDir()
+	globalCacheDir := filepath.Join(homeDir, ".jar-cart", "cache")
+	var resolvedDeps []models.Dependency
+	var err error
 
-	resp, err := http.Get(url)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("could not fetch POM for %s:%s", dep.Group, dep.Library)
+	if shouldResolve {
+		resolvedDeps, err = ResolveUsingGoogle(dependencies)
+	} else {
+		resolvedDeps = dependencies
 	}
-	defer resp.Body.Close()
 
-	var pom models.Pom
-	if err := xml.NewDecoder(resp.Body).Decode(&pom); err != nil {
+	if err != nil {
 		return nil, err
 	}
 
-	var transitives []models.Dependency
-	for _, d := range pom.Dependencies {
-		if d.Scope == "test" || d.Scope == "provided" {
-			continue
-		}
-		if d.Version != "" {
-			transitives = append(transitives, models.Dependency{
-				Group: d.GroupID, Library: d.ArtifactID, Version: d.Version,
-			})
-		}
-	}
-	return transitives, nil
-}
+	g, _ := errgroup.WithContext(context.Background())
+	g.SetLimit(runtime.NumCPU()) 
 
-func ResolveParallelDependencies(projectDir string, dependencies []models.Dependency, resolveTransitives bool) (map[string]LockEntry, error) {
-	homeDir, _ := os.UserHomeDir()
-	globalCacheDir := filepath.Join(homeDir, ".jar-cart", "cache")
-	fullDepMap := make(map[string]models.Dependency)
-	queue := append([]models.Dependency{}, dependencies...)
-
-	for len(queue) > 0 {
-		dep := queue[0]
-		queue = queue[1:]
-		key := fmt.Sprintf("%s:%s", dep.Group, dep.Library)
-		
-		if _, exists := fullDepMap[key]; !exists {
-			fullDepMap[key] = dep
-			if resolveTransitives && IsOnline() {
-				transitives, err := GetTransitiveDependencies(dep)
-				if err == nil {
-					queue = append(queue, transitives...)
-				} else {
-					log.Warn("Could not resolve transitives (POM missing)", "dep", key)
-				}
-			}
-		}
-	}
-
-	numWorkers := runtime.NumCPU()
-	tasksChan := make(chan *SyncTask, len(fullDepMap))
-	resultsChan := make(chan *SyncTask, len(fullDepMap))
-	var wg sync.WaitGroup
-
-	for i := 0; i < numWorkers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for task := range tasksChan {
-				err := processDependencyExecution(task.Dep, globalCacheDir, filepath.Join(task.ProjectDir, "lib"))
-				if err != nil {
-					log.Error("Failed to process dependency", "dep", task.Dep.Library, "err", err)
-					task.Error = err
-				}
-				resultsChan <- task
-			}
-		}()
-	}
-
-	for _, dep := range fullDepMap {
-		tasksChan <- &SyncTask{Dep: dep, ProjectDir: projectDir}
-	}
-	close(tasksChan)
-	wg.Wait()
-	close(resultsChan)
+	var mu sync.Mutex
 	lockEntries := make(map[string]LockEntry)
-	for res := range resultsChan {
-		if res.Error != nil {
-			continue 
-		}
-		jarName := fmt.Sprintf("%s-%s.jar", res.Dep.Library, res.Dep.Version)
-		jarPath := filepath.Join(projectDir, "lib", jarName)
-		
-		if _, err := os.Stat(jarPath); err == nil {
+
+	for _, dep := range resolvedDeps {
+		dep := dep 
+		g.Go(func() error {
+			err := processDependencyExecution(dep, globalCacheDir, targetLibDir)
+			if err != nil {
+				return err 
+			}
+
+			jarName := fmt.Sprintf("%s-%s.jar", dep.Library, dep.Version)
+			jarPath := filepath.Join(targetLibDir, jarName)
+			var fileSize int64
+			if info, err := os.Stat(jarPath); err == nil {
+				fileSize = info.Size()
+			}
+			
 			hash, _ := CalculateSHA256(jarPath)
-			info, _ := os.Stat(jarPath)
-			lockEntries[res.Dep.Group+":"+res.Dep.Library] = LockEntry{
-				Path:   filepath.Join("lib", jarName),
-				Size:   info.Size(),
+
+			mu.Lock()
+			lockEntries[dep.Group+":"+dep.Library] = LockEntry{
+				Path:   jarPath,
+				Size:   fileSize,
 				SHA256: hash,
 			}
-		}
+			mu.Unlock()
+			return nil
+		})
 	}
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
 	return lockEntries, nil
 }
 
@@ -211,22 +173,52 @@ func ResolveCacheToCoordinate(filename string) string {
     return fmt.Sprintf("org.xerial:%s:%s", artifact, version)
 }
 
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+	if err != nil {
+		return err
+	}
+	
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	
+	if err := out.Sync(); err != nil {
+		out.Close()
+		return err
+	}
+	
+	return out.Close()
+}
+
 func linkFromCacheToLib(src, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return fmt.Errorf("failed to create lib dir: %w", err)
 	}
 	_ = os.Remove(dst)
-	err := os.Link(src, dst)
-	if err != nil {
-		return fallbackFileCopy(src, dst)
+	if err := copyFile(src, dst); err != nil {
+		return err
 	}
+	
 	log.Info("Linked dependency to lib/", "file", filepath.Base(dst))
 	return nil
 }
 
 func processDependencyExecution(dep models.Dependency, globalCacheDir, localLibDir string) error {
 	jarName := fmt.Sprintf("%s-%s.jar", dep.Library, dep.Version)
-	targetLocalJarPath := filepath.Join(localLibDir, jarName)
+	targetDir := localLibDir
+	if filepath.Base(targetDir) != "lib" {
+		targetDir = filepath.Join(localLibDir, "lib")
+	}
+
+	targetLocalJarPath := filepath.Join(targetDir, jarName)
 
 	if isFileValid(targetLocalJarPath, "") {
 		return nil
@@ -247,6 +239,7 @@ func processDependencyExecution(dep models.Dependency, globalCacheDir, localLibD
 	}
 	return linkFromCacheToLib(cachedJarPath, targetLocalJarPath)
 }
+
 func streamAndCacheAsset(url, targetPath string) error {
 	resp, err := http.Get(url)
 	if err != nil {

@@ -16,7 +16,7 @@ import (
 const (
 	ManifestJSON = "jar-cart.json"
 	ManifestXML  = "jar-cart.xml"
-	Version = "v0.5.1"
+	Version = "v0.6.0"
 )
 
 func printHelp() {
@@ -133,6 +133,14 @@ func main() {
 			projectName = filteredArgs[0]
 		}
 		
+		strategyName := "flat"
+		for i := 0; i < len(filteredArgs); i++ {
+			if filteredArgs[i] == "--strategy" && i+1 < len(filteredArgs) {
+				strategyName = filteredArgs[i+1]
+				break
+			}
+		}
+
 		manifestFormat, javaVersion := utils.InteractiveInit("")
 		if manifestFormat == "" {
 			logger.Fatal("Initialization cancelled or failed.")
@@ -143,7 +151,7 @@ func main() {
 			manifestType = "xml" 
 		}
 		
-		targetDir, err := utils.HandleInit(projectName, manifestType, javaVersion)
+		targetDir, err := utils.HandleInit(projectName, manifestType, javaVersion, strategyName)
 		if err != nil {
 			logger.Fatal("Failed to initialize", "error", err)
 		}
@@ -153,8 +161,8 @@ func main() {
 			logger.Fatal("Java provisioning failed", "error", err)
 		}
 
-		logger.Info("Scaffolding project", "path", targetDir, "format", manifestType)
-		if err := utils.ExecuteScaffold(targetDir, projectName, "Vanilla", "no-build", "Java", javaVersion, manifestType); err != nil {
+		logger.Info("Scaffolding project", "path", targetDir, "format", manifestType, "strategy", strategyName)
+		if err := utils.ExecuteScaffold(targetDir, projectName, "Vanilla", strategyName, "Java", javaVersion, manifestType); err != nil {
 			logger.Error("Scaffold failed", "error", err)
 		} else {
 			manifestName := ManifestJSON
@@ -239,8 +247,66 @@ func main() {
         } else {
             logger.Info("Conversion successful", "to", targetFormat)
         }
+	
+	case "template", "register-template":
+		if len(filteredArgs) < 1 {
+			logger.Error("Template command requires a subcommand or key (e.g., jar-cart template list, jar-cart template remove <key>, or jar-cart template <key> [path]).")
+			return
+		}
+
+		subCommand := filteredArgs[0]
+		switch subCommand {
+		case "list", "ls":
+			logger.Info("Listing available templates...")
+			if err := utils.ListCustomTemplates(); err != nil {
+				logger.Error("Failed to list templates", "error", err)
+			}
+			return
+
+		case "remove", "rm":
+			if len(filteredArgs) < 2 {
+				logger.Error("Template removal requires a key (e.g., jar-cart template remove <key>).")
+				return
+			}
+			templateKey := filteredArgs[1]
+			logger.Info("Removing custom template...", "key", templateKey)
+			if err := utils.RemoveCustomTemplate(templateKey); err != nil {
+				logger.Error("Failed to remove custom template", "error", err)
+			} else {
+				logger.Info("Custom template removed successfully from local registry!", "key", templateKey)
+			}
+			return
+
+		default:
+			templateKey := subCommand
+			projectPath := "."
+			if len(filteredArgs) > 1 {
+				projectPath = filteredArgs[1]
+			}
+
+			logger.Info("Registering custom template...", "key", templateKey, "path", projectPath)
+			if err := utils.RegisterCustomTemplate(templateKey, projectPath); err != nil {
+				logger.Error("Failed to register custom template", "error", err)
+			} else {
+				logger.Info("Custom template registered successfully in local registry!", "key", templateKey)
+			}
+			return
+		}
 
 	case "sync":
+		if _, err := os.Stat("jar-cart.workspace.json"); err == nil {
+			logger.Info("Synchronizing workspace modules...")
+			ws := utils.LoadWorkspaceManifest()
+			for modName, modConfig := range ws.Modules {
+				logger.Info("Syncing module", "module", modName, "path", modConfig.Path)
+				if err := utils.RunSync(modConfig.Path); err != nil {
+					logger.Error("Module sync failed", "module", modName, "error", err)
+				}
+			}
+			logger.Info("Workspace synchronized successfully.")
+			return
+		}
+
 		if _, err := os.Stat(manifestFile); os.IsNotExist(err) {
 			logger.Fatal(
 				"Project manifest not found",
@@ -277,6 +343,29 @@ func main() {
 		logger.Info("Dependencies synced successfully.")
 
 	case "audit":
+		if _, err := os.Stat("jar-cart.workspace.json"); err == nil {
+			logger.Info("Auditing workspace-wide dependencies for vulnerabilities...")
+			ws := utils.LoadWorkspaceManifest()
+			vulns, err := utils.CheckWorkspaceVulnerabilities(ws)
+			if err != nil {
+				logger.Error("Workspace audit request failed", "error", err)
+				return
+			}
+
+			found := false
+			for _, result := range vulns.Results {
+				for _, v := range result.Vulns {
+					found = true
+					fmt.Printf("⚠️  [%s] %s\n   %s\n\n", v.ID, v.Summary, v.Details)
+				}
+			}
+
+			if !found {
+				fmt.Println("✅ No known vulnerabilities found across workspace modules.")
+			}
+			return
+		}
+
 		manifest, err := utils.LoadManifest(manifestFile)
 		if err != nil {
 			logger.Fatal("Failed to load manifest for audit", "error", err)
@@ -383,6 +472,7 @@ func main() {
 			}
 		}
 
+
 	case "remove", "rm":
 		if len(filteredArgs) < 1 {
 			logger.Error("Remove requires target coordinates (group:lib).")
@@ -395,14 +485,29 @@ func main() {
 		}
 
 	case "run":
+		appArgs := utils.GetForwardedArgs()
+		if _, err := os.Stat("jar-cart.workspace.json"); err == nil {
+			ws := utils.LoadWorkspaceManifest()
+			if len(filteredArgs) > 0 {
+				targetMod := filteredArgs[0]
+				if modConfig, exists := ws.Modules[targetMod]; exists {
+					logger.Info("Executing workspace module", "module", targetMod)
+					utils.RunModuleProject(modConfig.Path, "", appArgs, ws)
+					return
+				}
+			}
+
+			logger.Info("Executing workspace monorepo automatically...")
+			utils.RunWorkspaceAutomatic(ws)
+			return
+		}
+
 		if len(filteredArgs) < 1 {
 			logger.Error("Run requires a target.")
 			return
 		}
 
 		target := filteredArgs[0]
-		appArgs := utils.GetForwardedArgs()
-
 		manifest, err := utils.LoadManifest(manifestFile)
 		if err == nil && manifest.Scripts != nil {
 			if _, ok := manifest.Scripts[target]; ok {
@@ -435,6 +540,18 @@ func main() {
 
 		appArgs := utils.GetForwardedArgs()
 
+		if _, err := os.Stat("jar-cart.workspace.json"); err == nil {
+			ws := utils.LoadWorkspaceManifest()
+			if modConfig, exists := ws.Modules[target]; exists {
+				logger.Info("Watching workspace module", "module", target, "path", modConfig.Path, "args", appArgs)
+				utils.WatchAndRun(filepath.Join(modConfig.Path, "src"), appArgs)
+				return
+			}
+			
+			logger.Warn("In workspace mode, specify the module name to watch (e.g., jar-cart watch <module-name>) or run from a module directory.")
+			return
+		}
+
 		logger.Info(
 			"Watching target",
 			"target", target,
@@ -444,6 +561,16 @@ func main() {
 		utils.WatchAndRun(target, appArgs)
 
 	case "build":
+		if _, err := os.Stat("jar-cart.workspace.json"); err == nil {
+			ws := utils.LoadWorkspaceManifest()
+			if err := utils.RunWorkspaceBuild(ws); err != nil {
+				logger.Error("Workspace build failed", "error", err)
+				os.Exit(1)
+			}
+			logger.Info("Workspace build successful!")
+			return
+		}
+
 		if err := utils.RunBuild(); err != nil {
 			logger.Error("Build failed", "error", err)
 			os.Exit(1)

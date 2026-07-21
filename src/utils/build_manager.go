@@ -32,6 +32,16 @@ func DetectProjectStrategy() string {
 	return "manual"
 }
 
+func DetectModuleStrategy(modulePath string) string {
+	if FileExists(filepath.Join(modulePath, "pom.xml")) {
+		return "maven"
+	}
+	if FileExists(filepath.Join(modulePath, "build.gradle")) || FileExists(filepath.Join(modulePath, "build.gradle.kts")) {
+		return "gradle"
+	}
+	return "manual"
+}
+
 func RunBuild() error {
 	strategy := DetectProjectStrategy()
 	log.Info("Building project", "strategy", strategy)
@@ -46,6 +56,51 @@ func RunBuild() error {
 	default:
 		return fmt.Errorf("unknown strategy: %s", strategy)
 	}
+}
+
+func RunWorkspaceBuild(workspace models.WorkspaceManifest) error {
+	log.Info("Starting workspace-wide multi-module build...")
+
+	for modName, modConfig := range workspace.Modules {
+		log.Info("Building workspace module", "module", modName, "path", modConfig.Path)
+		
+		if _, err := os.Stat(modConfig.Path); os.IsNotExist(err) {
+			log.Warn("Module directory does not exist, skipping", "module", modName, "path", modConfig.Path)
+			continue
+		}
+
+		originalDir, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+
+		if err := os.Chdir(modConfig.Path); err != nil {
+			return fmt.Errorf("failed to enter module directory %s: %w", modConfig.Path, err)
+		}
+
+		strategy := DetectModuleStrategy(".")
+		var buildErr error
+
+		switch strategy {
+		case "maven":
+			buildErr = runCommand("mvn", "package")
+		case "gradle":
+			buildErr = runCommand("gradle", "build")
+		case "manual":
+			buildErr = performManualBuild()
+		default:
+			buildErr = fmt.Errorf("unknown strategy for module %s", modName)
+		}
+
+		_ = os.Chdir(originalDir)
+
+		if buildErr != nil {
+			return fmt.Errorf("failed building module %s: %w", modName, buildErr)
+		}
+	}
+
+	log.Info("All workspace modules built successfully!")
+	return nil
 }
 
 func detectMainClassInBin(binDir string) (string, error) {
@@ -160,6 +215,12 @@ func OptimizeJarForDeployment(jarPath string, outputDir string) error {
 		return fmt.Errorf("JAR file not found: %s. Did you forget to run 'jar-cart build'?", jarPath)
 	}
 
+	initialInfo, err := os.Stat(jarPath)
+	if err != nil {
+		return fmt.Errorf("failed to read source JAR info: %w", err)
+	}
+	initialSize := initialInfo.Size()
+
 	if _, err := os.Stat(outputDir); err == nil {
 		log.Info("Cleaning existing output directory...", "path", outputDir)
 		if err := os.RemoveAll(outputDir); err != nil {
@@ -178,17 +239,20 @@ func OptimizeJarForDeployment(jarPath string, outputDir string) error {
 	manifestFiles := []string{"jar-cart.json", "jar-cart.xml"}
 	for _, file := range manifestFiles {
 		if FileExists(file) {
-			manifest, err := LoadManifest(file)
-			if err == nil {
-				if manifest.JavaVersion != "" {
-					javaVersion = manifest.JavaVersion
+			adapter := GetAdapterForFile(file)
+			if adapter != nil {
+				manifest, err := adapter.Load(file)
+				if err == nil {
+					if manifest.JavaVersion != "" {
+						javaVersion = manifest.JavaVersion
+					}
+					if manifest.Optimize.Compression != 0 {
+						cfg.Compression = manifest.Optimize.Compression
+					}
+					cfg.StripDebug = manifest.Optimize.StripDebug
+					cfg.StripNative = manifest.Optimize.StripNative
+					break
 				}
-				if manifest.Optimize.Compression != 0 {
-					cfg.Compression = manifest.Optimize.Compression
-				}
-				cfg.StripDebug = manifest.Optimize.StripDebug
-				cfg.StripNative = manifest.Optimize.StripNative
-				break
 			}
 		}
 	}
@@ -200,7 +264,30 @@ func OptimizeJarForDeployment(jarPath string, outputDir string) error {
 	}
 	
 	log.Info("Trimming runtime with jlink...", "modules", modules, "compression", cfg.Compression)
-	return optimizer.CreateCustomRuntime(modules, outputDir, cfg)
+	if err := optimizer.CreateCustomRuntime(modules, outputDir, cfg); err != nil {
+		return err
+	}
+
+	finalSize, err := getDirectorySize(outputDir)
+	if err != nil {
+		log.Warn("Could not compute final runtime directory size", "error", err)
+		log.Info("Runtime optimized successfully!")
+		return nil
+	}
+
+	diffBytes := initialSize - finalSize
+	var percentage float64
+	if initialSize > 0 {
+		percentage = (float64(diffBytes) / float64(initialSize)) * 100
+	}
+
+	log.Info("Optimization Metrics", 
+		"source_jar_size", formatBytes(initialSize), 
+		"optimized_runtime_size", formatBytes(finalSize), 
+		"net_reduction", fmt.Sprintf("%.2f%%", percentage),
+	)
+	log.Info("Runtime optimized successfully!")
+	return nil
 }
 
 func RunJar(target string, mainClass string, appArgs []string) error {

@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -25,18 +26,26 @@ func (o *JLinkOptimizer) AnalyzeDependencies(javaVersion string) (string, error)
 		return "", fmt.Errorf("failed to resolve jar path: %w", err)
 	}
 
-	libDir := "lib"
-	absLibPath, _ := filepath.Abs(libDir)
-	classpath := filepath.Join(absLibPath, "*")
-
-	log.Info("Analyzing with jdeps", "jar", absJarPath, "version", javaVersion)
-	cmd := exec.Command("jdeps",
+	args := []string{
 		"--print-module-deps",
 		"--ignore-missing-deps",
+		"-R",
 		"--multi-release", javaVersion,
-		"--class-path", classpath,
-		absJarPath,
-	)
+	}
+
+	libDir := "lib"
+	if FileExists(libDir) && hasJars(libDir) {
+		absLibPath, err := filepath.Abs(libDir)
+		if err == nil {
+			classpath := filepath.Join(absLibPath, "*")
+			args = append(args, "--class-path", classpath)
+		}
+	}
+
+	args = append(args, absJarPath)
+
+	log.Info("Analyzing with jdeps", "jar", absJarPath, "version", javaVersion)
+	cmd := exec.Command("jdeps", args...)
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -55,6 +64,21 @@ func (o *JLinkOptimizer) AnalyzeDependencies(javaVersion string) (string, error)
 	}
 
 	return "", fmt.Errorf("could not parse valid module list from jdeps output: %s", output)
+}
+
+func hasJars(dir string) bool {
+	found := false
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ".jar") {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
 }
 
 func (o *JLinkOptimizer) CreateCustomRuntime(modules string, outputDir string, cfg models.OptimizationConfig) error {
